@@ -37,6 +37,11 @@ void bind_to_port(int socket, int port, int reuse) {
 		error("Bind failed");
 }
 
+void say(int socket, char * msg) {
+	if (send(socket, msg, strlen(msg), 0) == -1)
+		error("Send failed");
+}
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
@@ -66,8 +71,10 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+	int connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
 	printf("Client connected\n");
+
+	say(connection_fd, "+PONG\r\n");
 
 	close(server_fd);
 
