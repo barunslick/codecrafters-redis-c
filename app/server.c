@@ -105,20 +105,28 @@ int main() {
 	printf("Waiting for a client to connect...\n");
 	client_addr_len = sizeof(client_addr);
 
-	int connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	while (1) {
-		char buf[1024];
-		int len = read_in(connection_fd, buf, sizeof(buf));
-		if (len < 0) {
-			break;
-		} else if (len == 0) {
-			printf("Client disconnected\n");
+	int pid;
+	int connection_fd;
+
+	while (1) { // Main program loop
+		connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+		int pid = fork();
+		if (!pid) {
+			close(server_fd); // Close the server_fd in the child process
 			break;
 		}
+		// Close the connection_fd in the parent process
+		close(connection_fd);
+	}
+
+	char buf[1024];
+	while(read_in(connection_fd, buf, sizeof(buf))){
 		say(connection_fd, "+PONG\r\n");
 	}
 	
-	close(server_fd);
+	if (pid) {
+		close(server_fd);
+	}
 
 	return 0;
 }
