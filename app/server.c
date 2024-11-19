@@ -42,6 +42,40 @@ void say(int socket, char * msg) {
 		error("Send failed");
 }
 
+int read_in(int socket, char *buf, int len) {
+	char *s = buf;         // Pointer to the current position in the buffer
+	int remaining = len;   // Remaining space in the buffer
+	int bytes_read;
+
+	// Read data from the socket in a loop
+	while ((bytes_read = recv(socket, s, remaining, 0)) > 0) {
+		if (s[bytes_read - 1] == '\n') {
+		    // Null-terminate the string, replacing '\n' with '\0'
+		    s[bytes_read - 1] = '\0';
+		    return len - remaining + bytes_read;
+		}
+		// Move the pointer forward and update the remaining space
+		s += bytes_read;
+		remaining -= bytes_read;
+
+		// Prevent buffer overflow
+		if (remaining <= 0) break;
+	}
+
+	if (bytes_read < 0) {
+		// Error occurred during recv
+		return -1;
+	} else if (bytes_read == 0) {
+		// Connection closed, return an empty string
+		buf[0] = '\0';
+		return 0;
+	}
+
+	// Null-terminate if no newline is found
+	buf[len - remaining] = '\0';
+	return len - remaining;
+}
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
@@ -72,10 +106,18 @@ int main() {
 	client_addr_len = sizeof(client_addr);
 
 	int connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-	printf("Client connected\n");
-
-	say(connection_fd, "+PONG\r\n");
-
+	while (1) {
+		char buf[1024];
+		int len = read_in(connection_fd, buf, sizeof(buf));
+		if (len < 0) {
+			break;
+		} else if (len == 0) {
+			printf("Client disconnected\n");
+			break;
+		}
+		say(connection_fd, "+PONG\r\n");
+	}
+	
 	close(server_fd);
 
 	return 0;
