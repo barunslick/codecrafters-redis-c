@@ -9,6 +9,7 @@
 
 
 const int DEFAULT_REDIS_PORT = 6379;
+const int MAX_BUFFER_SIZE = 1024;
 
 
 //----------------------------------------------------------------
@@ -261,7 +262,7 @@ int main() {
 		close(connection_fd);
 	}
 
-	char buf[100000]; // Hardcoded buffer for now
+	char buf[MAX_BUFFER_SIZE];
 	
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;
