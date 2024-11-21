@@ -266,7 +266,6 @@ int main() {
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;
 		// say(connection_fd, "+PONG\r\n");
-		printf("Received: %s\n", buf);
 		RESPData *request= parse_resp_buffer(&parse_buf);
 		if (request == NULL) {
 			// Handle invalid request
