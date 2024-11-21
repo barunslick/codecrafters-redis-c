@@ -261,7 +261,7 @@ int main() {
 		close(connection_fd);
 	}
 
-	char buf[1024];
+	char buf[100000]; // Hardcoded buffer for now
 	
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;
