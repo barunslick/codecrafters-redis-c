@@ -10,6 +10,9 @@
 
 const int DEFAULT_REDIS_PORT = 6379;
 
+
+//----------------------------------------------------------------
+// HELPER FUNCTIONS 
 void error(char * msg){
 	fprintf(stderr, "%s: %s\n", msg, strerror(errno));
 	exit(1);
@@ -48,11 +51,11 @@ int read_in(int socket, char *buf, int len) {
 	int bytes_read;
 
 	// Read data from the socket in a loop
-	while ((bytes_read = recv(socket, s, remaining, 0)) > 0) {
-		if (s[bytes_read - 1] == '\n') {
-		    // Null-terminate the string, replacing '\n' with '\0'
-		    s[bytes_read - 1] = '\0';
-		    return len - remaining + bytes_read;
+	while ((bytes_read = recv(socket, buf, remaining, 0)) > 0) {
+		if (s[bytes_read - 1] == '\n' && s[bytes_read - 2] == '\r'){
+			// Null-terminate the string, replacing '\n' with '\0'
+			buf[bytes_read - 1] = '\0';	
+			return len - remaining + bytes_read;
 		}
 		// Move the pointer forward and update the remaining space
 		s += bytes_read;
@@ -64,17 +67,156 @@ int read_in(int socket, char *buf, int len) {
 
 	if (bytes_read < 0) {
 		// Error occurred during recv
-		return -1;
+		error("Read failed");
 	} else if (bytes_read == 0) {
 		// Connection closed, return an empty string
 		buf[0] = '\0';
 		return 0;
 	}
 
-	// Null-terminate if no newline is found
 	buf[len - remaining] = '\0';
 	return len - remaining;
 }
+//----------------------------------------------------------------
+
+
+//----------------------------------------------------------------
+// PARSER
+
+typedef enum {
+	RESP_INVALID,
+	RESP_SIMPLE_STRING,
+	RESP_ERROR,
+	RESP_INTEGER,
+	RESP_BULK_STRING,
+	RESP_ARRAY,
+	RESP_NULL
+} RESPType;
+
+typedef struct RESPData {  // 4(+4 padding) + 8 = 16 bytes
+	RESPType type; // 4 bytes
+	union {
+		char *str; // 8 bytes
+		char *error; // 8 bytes
+		long long integer; // Redis integers are 64-bit(8 bytes) signed integers
+		// struct RESPData *array; I don't understand array at this point
+		struct {
+			struct RESPData **elements;
+			size_t count;
+		} array;
+	} data;
+} RESPData;
+
+// Forward Declaration
+RESPData* parse_resp_buffer(char** buf);
+RESPData* parse_bulk_string(char** buf);
+RESPData* parse_array(char** buf);
+void free_resp_data(RESPData* data);
+
+
+void free_resp_data(RESPData *data) {
+	switch (data->type) {
+		case RESP_SIMPLE_STRING:
+			free(data->data.str);
+			break;
+		case RESP_ERROR:
+			free(data->data.error);
+			break;
+		default:
+			break;
+	}
+}
+
+RESPData* parse_bulk_string(char **buf) {
+	// Example: $3\r\nfoo\r\n
+	// "foo"
+	char *start = *buf;
+	char *end = strchr(start, '\r');
+	RESPData *data = malloc(sizeof(RESPData));
+	data->type = RESP_BULK_STRING;
+
+	long length = strtol(start + 1, NULL, 10);
+
+	if (length < 0) {
+		data->type = RESP_NULL;
+		data->data.str = NULL;
+		*buf = end + 2;
+		return data;
+	}
+
+	*buf = end + 2; // Skip the "$3\r\n" part
+	data->data.str = strndup(*buf, length); // Copy happens here.
+	if (data->data.str == NULL) {
+		printf("Error copying bulk string\n");
+		free(data);
+		return NULL;
+	}
+
+	*buf += length + 2; // Skip the "foo\r\n" part
+	
+	return data;
+}
+
+RESPData* parse_resp_buffer(char **buf) {
+	switch (*buf[0]) {
+		// case '+':
+		// 	return parse_simple_string(buf);
+		// case '-':
+		// 	return parse_error(buf);
+		// case ':':
+		// 	return parse_integer(buf);
+		case '$':
+			return parse_bulk_string(buf);
+		case '*':
+			return parse_array(buf);
+		default:
+			return NULL;
+	}
+}
+
+RESPData* parse_array(char **buf) {
+	// Example: *3\r\n$3\r\nfoo\r\n$3\r\nbar\r\n$5\r\nHello\r\n
+	// ["foo", "bar", "Hello"]
+	char *start = *buf;
+	char *end = strchr(start, '\r');
+	RESPData *data = malloc(sizeof(RESPData));
+	data->type = RESP_ARRAY;
+
+	long count = strtol(start + 1, NULL, 10);
+
+	if (count < 0) {
+		data->type = RESP_NULL;
+		data->data.array.elements = NULL;
+		data->data.array.count = 0;
+		*buf = end + 2;
+		return data;
+	}
+	// TODO: Need more handling of cases such as -1, Needing to send actual null
+
+	*buf = end + 2; // Skip the "*3\r\n" part
+	
+	data->data.array.count = count;
+	data->data.array.elements = malloc(count * sizeof(RESPData*));
+	
+	for (int i = 0; i < count; i++) {
+		data->data.array.elements[i] = parse_resp_buffer(buf);
+
+		if (data->data.array.elements[i] == NULL) {
+			printf("Error parsing array element %d\n", i);
+			// Free the previously allocated elements
+			for (int j = 0; j < i; j++) {
+				free_resp_data(data->data.array.elements[j]);
+			}
+			free(data->data.array.elements);
+			free(data);
+			return NULL;
+		}
+	}
+
+	return data;
+}
+
+//----------------------------------------------------------------
 
 int main() {
 	// Disable output buffering
@@ -120,8 +262,36 @@ int main() {
 	}
 
 	char buf[1024];
+	
 	while(read_in(connection_fd, buf, sizeof(buf))){
-		say(connection_fd, "+PONG\r\n");
+		char *parse_buf = buf;
+		// say(connection_fd, "+PONG\r\n");
+		printf("Received: %s\n", buf);
+		RESPData *request= parse_resp_buffer(&parse_buf);
+		if (request == NULL) {
+			// Handle invalid request
+			printf("Error parsing request\n");
+			continue;
+		}
+		else if (request->type == RESP_ARRAY && request->data.array.count == 0) {
+			// Handle empty array
+			printf("Empty array\n");
+			continue;
+		}
+		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "PING") == 0) {
+			say(connection_fd, "+PONG\r\n");
+		}
+		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "ECHO") == 0) {
+			char output[1024];
+			sprintf(output, "+%s\r\n", request->data.array.elements[1]->data.str);
+			say(connection_fd, output);
+		}
+		else {
+			// Handle unknown command
+			printf("Unknown command\n");
+		}
+
+		free_resp_data(request);
 	}
 	
 	if (pid) {
