@@ -7,10 +7,11 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include "hashtable.h"
 
-const int DEFAULT_REDIS_PORT = 6379;
-const int MAX_BUFFER_SIZE = 1024;
 
+#define DEFAULT_REDIS_PORT 6379
+#define MAX_BUFFER_SIZE 1024
 
 //----------------------------------------------------------------
 // HELPER FUNCTIONS 
@@ -219,6 +220,10 @@ RESPData* parse_array(char **buf) {
 
 //----------------------------------------------------------------
 
+
+//----------------------------------------------------------------
+// MAIN FUNCTION
+
 int main() {
 	// Disable output buffering
 	setbuf(stdout, NULL);
@@ -263,6 +268,7 @@ int main() {
 	}
 
 	char buf[MAX_BUFFER_SIZE];
+	ht_table *ht = ht_create();
 	
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;
@@ -285,6 +291,24 @@ int main() {
 			char output[1024];
 			sprintf(output, "+%s\r\n", request->data.array.elements[1]->data.str);
 			say(connection_fd, output);
+		}
+		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "SET") == 0) {
+			ht_set(ht, request->data.array.elements[1]->data.str, request->data.array.elements[2]->data.str);
+			say(connection_fd, "+OK\r\n");
+		}
+		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "GET") == 0) {
+			char *value = ht_get(ht, request->data.array.elements[1]->data.str);
+			if (value == NULL) {
+				say(connection_fd, "$-1\r\n");
+			} else {
+				char output[1024];
+				sprintf(output, "$%ld\r\n%s\r\n", strlen(value), value);
+				say(connection_fd, output);
+			}
+		}
+		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "DEL") == 0) {
+			ht_del(ht, request->data.array.elements[1]->data.str);
+			say(connection_fd, ":1\r\n");
 		}
 		else {
 			// Handle unknown command
