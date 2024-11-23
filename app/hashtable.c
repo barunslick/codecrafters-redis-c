@@ -1,10 +1,17 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "hashtable.h"
 
 #define INITIAL_CAPACITY 32
+
+uint64_t get_current_epoch_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
 
 ht_table* ht_create() {
     // Allocate space for hash table struct.
@@ -51,8 +58,13 @@ void* ht_get(ht_table* table, const char* key) {
 	size_t index = (size_t)(hash & (uint64_t)(table->capacity - 1));
 
 	while (table->entries[index].key != NULL) {
-		if (strcmp(key, table->entries[index].key) == 0)
+		if (strcmp(key, table->entries[index].key) == 0){
+			if (table->entries[index].expiry != 0 && table->entries[index].expiry < get_current_epoch_ms()){
+				ht_del(table, key);
+				return NULL;
+			}
 			return table->entries[index].value;
+		}
 		index++;
 		if (index >= table->capacity)
 			index = 0;
@@ -60,10 +72,15 @@ void* ht_get(ht_table* table, const char* key) {
 	return NULL;
 }
 
-const char* ht_set(ht_table* table, const char* key, void* value) {
+const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expiry) {
 	if (table == NULL || key == NULL || value == NULL) {
 		return NULL;
 	}
+
+	// get absolute time for expiry
+	uint64_t expiry_abs = 0;
+	if (expiry > 0)
+		expiry_abs = expiry + get_current_epoch_ms();
 	
 	// TODO LATER: If we're at 75% capacity, resize the table.
 	if (table->length >= table->capacity)
@@ -75,6 +92,7 @@ const char* ht_set(ht_table* table, const char* key, void* value) {
 	while (table->entries[index].key != NULL) {
 		if (strcmp(key, table->entries[index].key) == 0) {
 			table->entries[index].value = value;
+			table->entries[index].expiry = expiry_abs;
 			return key;
 		}
 		index++;
@@ -84,6 +102,7 @@ const char* ht_set(ht_table* table, const char* key, void* value) {
 
 	table->entries[index].key = strdup(key);
 	table->entries[index].value = value;
+	table->entries[index].expiry = expiry_abs;
 	table->length++;
 }
 
@@ -104,6 +123,7 @@ void ht_del(ht_table* table, const char* key) {
 			free((void*)table->entries[index].key);
 			table->entries[index].key = NULL;
 			table->entries[index].value = NULL;
+			table->entries[index].expiry = 0;
 			table->length--;
 			return;
 		}

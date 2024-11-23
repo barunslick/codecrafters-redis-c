@@ -6,6 +6,7 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #include "hashtable.h"
 
@@ -222,6 +223,133 @@ RESPData* parse_array(char **buf) {
 
 
 //----------------------------------------------------------------
+// COMMAND HANDLER
+
+typedef enum {
+    CMD_PING,
+    CMD_ECHO,
+    CMD_SET,
+    CMD_GET,
+    CMD_DEL,
+    CMD_UNKNOWN
+} CommandType;
+
+typedef struct {
+    CommandType type;
+    int min_args;
+    int max_args;
+    const char* name;
+} CommandInfo;
+
+// Command speciofication with max and min arguments
+static const CommandInfo COMMANDS[] = {
+    {CMD_PING, 1, 1, "PING"},
+    {CMD_ECHO, 2, 2, "ECHO"},
+    {CMD_SET, 3, 5, "SET"},
+    {CMD_GET, 2, 2, "GET"},
+    {CMD_DEL, 2, 2, "DEL"}
+};
+
+// Command validation and parsing
+CommandType get_command_type(const char* cmd_str) {
+    for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
+        if (strcasecmp(cmd_str, COMMANDS[i].name) == 0)
+            return COMMANDS[i].type;
+    }
+    return CMD_UNKNOWN;
+}
+
+bool validate_command_args(CommandType cmd, size_t arg_count) {
+    for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
+        if (COMMANDS[i].type == cmd)
+            return COMMANDS[i].max_args == -1 || (arg_count >= COMMANDS[i].min_args && (arg_count <= COMMANDS[i].max_args));
+    }
+    return false;
+}
+
+// Command handlers
+void handle_ping(int connection_fd) {
+    say(connection_fd, "+PONG\r\n");
+}
+
+void handle_echo(int connection_fd, RESPData* request) {
+    char output[1024];
+    sprintf(output, "+%s\r\n", request->data.array.elements[1]->data.str);
+    say(connection_fd, output);
+}
+
+void handle_set(int connection_fd, RESPData* request, ht_table* ht) {
+	const char* key = request->data.array.elements[1]->data.str;
+	void* value = request->data.array.elements[2]->data.str;
+
+	uint64_t expiry = 0;
+	if (request->data.array.count > 3 && strcasecmp(request->data.array.elements[3]->data.str, "px") == 0)
+		expiry = (uint64_t) strtol(request->data.array.elements[4]->data.str, NULL, 10);
+
+	if (ht_set(ht, key, value, expiry) == NULL) {
+		say(connection_fd, "-ERR failed to set key\r\n");
+		return;
+	}
+
+	say(connection_fd, "+OK\r\n");
+
+}
+
+void handle_get(int connection_fd, RESPData* request, ht_table* ht) {
+    const char* key = request->data.array.elements[1]->data.str;
+    char* value = ht_get(ht, key);
+
+    if (value == NULL) {
+        say(connection_fd, "$-1\r\n");
+    } else {
+        char output[1024];
+        sprintf(output, "$%ld\r\n%s\r\n", strlen(value), value);
+        say(connection_fd, output);
+    }
+}
+
+void handle_del(int connection_fd, RESPData* request, ht_table* ht) {
+    ht_del(ht, request->data.array.elements[1]->data.str);
+    say(connection_fd, ":1\r\n");
+}
+
+// Main command processor
+void process_command(int connection_fd, RESPData* request, ht_table* ht) {
+    if (request == NULL || request->type != RESP_ARRAY || request->data.array.count == 0) {
+        say(connection_fd, "-ERR Invalid request\r\n");
+        return;
+    }
+
+    const char* cmd_str = request->data.array.elements[0]->data.str;
+    CommandType cmd = get_command_type(cmd_str);
+    
+    if (!validate_command_args(cmd, request->data.array.count)) {
+        say(connection_fd, "-ERR wrong number of arguments\r\n");
+        return;
+    }
+
+    switch (cmd) {
+        case CMD_PING:
+            handle_ping(connection_fd);
+            break;
+        case CMD_ECHO:
+            handle_echo(connection_fd, request);
+            break;
+        case CMD_SET:
+            handle_set(connection_fd, request, ht);
+            break;
+        case CMD_GET:
+            handle_get(connection_fd, request, ht);
+            break;
+        case CMD_DEL:
+            handle_del(connection_fd, request, ht);
+            break;
+        default:
+            say(connection_fd, "-ERR unknown command\r\n");
+    }
+}
+
+//----------------------------------------------------------------
 // MAIN FUNCTION
 
 int main() {
@@ -274,47 +402,7 @@ int main() {
 		char *parse_buf = buf;
 		// say(connection_fd, "+PONG\r\n");
 		RESPData *request= parse_resp_buffer(&parse_buf);
-		if (request == NULL) {
-			// Handle invalid request
-			printf("Error parsing request\n");
-			continue;
-		}
-		else if (request->type == RESP_ARRAY && request->data.array.count == 0) {
-			// Handle empty array
-			printf("Empty array\n");
-			continue;
-		}
-		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "PING") == 0) {
-			say(connection_fd, "+PONG\r\n");
-		}
-		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "ECHO") == 0) {
-			char output[1024];
-			sprintf(output, "+%s\r\n", request->data.array.elements[1]->data.str);
-			say(connection_fd, output);
-		}
-		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "SET") == 0) {
-			ht_set(ht, request->data.array.elements[1]->data.str, request->data.array.elements[2]->data.str);
-			say(connection_fd, "+OK\r\n");
-		}
-		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "GET") == 0) {
-			char *value = ht_get(ht, request->data.array.elements[1]->data.str);
-			if (value == NULL) {
-				say(connection_fd, "$-1\r\n");
-			} else {
-				char output[1024];
-				sprintf(output, "$%ld\r\n%s\r\n", strlen(value), value);
-				say(connection_fd, output);
-			}
-		}
-		else if (request->type == RESP_ARRAY && strcmp(request->data.array.elements[0]->data.str, "DEL") == 0) {
-			ht_del(ht, request->data.array.elements[1]->data.str);
-			say(connection_fd, ":1\r\n");
-		}
-		else {
-			// Handle unknown command
-			printf("Unknown command\n");
-		}
-
+		process_command(connection_fd, request, ht);
 		free_resp_data(request);
 	}
 	
