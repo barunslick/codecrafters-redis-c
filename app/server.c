@@ -7,12 +7,23 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <getopt.h>
 
 #include "hashtable.h"
 
 
 #define DEFAULT_REDIS_PORT 6379
 #define MAX_BUFFER_SIZE 1024
+
+//----------------------------------------------------------------
+// CONFIG
+struct RedisConfig {
+	char *dir;
+	char *dbfilename;
+} RedisConfig = {0};
+
+//----------------------------------------------------------------
+
 
 //----------------------------------------------------------------
 // HELPER FUNCTIONS 
@@ -223,31 +234,69 @@ RESPData* parse_array(char **buf) {
 
 
 //----------------------------------------------------------------
+// ENCOERS
+
+char *convert_to_resp_bulk(int count, const char *strings[]) {
+	// Allocate a buffer with enough space for the expected output
+	// TODO: Make this resizable
+	size_t buffer_size = 1024;
+	char *result = malloc(buffer_size);
+	if (!result) {
+		perror("Failed to allocate memory");
+		exit(EXIT_FAILURE);
+	}
+	result[0] = '\0'; // Start with an empty string
+
+	// Add the *<count> prefix to indicate the number of elements
+	snprintf(result, buffer_size, "*%d\r\n", count);
+
+	for (int i = 0; i < count; i++) {
+	const char *str = strings[i];
+		char buffer[256];
+
+		if (str == NULL) {
+			snprintf(buffer, sizeof(buffer), "$-1\r\n");
+		} else {
+			int length = strlen(str);
+			snprintf(buffer, sizeof(buffer), "$%d\r\n%s\r\n", length, str);
+		}
+		strcat(result, buffer);
+	}
+
+	return result;
+}
+
+//----------------------------------------------------------------
+
+
+//----------------------------------------------------------------
 // COMMAND HANDLER
 
 typedef enum {
-    CMD_PING,
-    CMD_ECHO,
-    CMD_SET,
-    CMD_GET,
-    CMD_DEL,
-    CMD_UNKNOWN
+	CMD_PING,
+	CMD_ECHO,
+	CMD_SET,
+	CMD_GET,
+	CMD_DEL,
+	CMD_CONFIG,
+	CMD_UNKNOWN
 } CommandType;
 
 typedef struct {
-    CommandType type;
-    int min_args;
-    int max_args;
-    const char* name;
+	CommandType type;
+	int min_args;
+	int max_args;
+	const char* name;
 } CommandInfo;
 
 // Command speciofication with max and min arguments
 static const CommandInfo COMMANDS[] = {
-    {CMD_PING, 1, 1, "PING"},
-    {CMD_ECHO, 2, 2, "ECHO"},
-    {CMD_SET, 3, 5, "SET"},
-    {CMD_GET, 2, 2, "GET"},
-    {CMD_DEL, 2, 2, "DEL"}
+	{CMD_PING, 1, 1, "PING"},
+	{CMD_ECHO, 2, 2, "ECHO"},
+	{CMD_SET, 3, 5, "SET"},
+	{CMD_GET, 2, 2, "GET"},
+	{CMD_DEL, 2, 2, "DEL"},
+	{CMD_CONFIG, 3, 3, "CONFIG"}
 };
 
 // Command validation and parsing
@@ -330,35 +379,85 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht) {
 
     switch (cmd) {
         case CMD_PING:
-            handle_ping(connection_fd);
-            break;
+		handle_ping(connection_fd);
+		break;
         case CMD_ECHO:
-            handle_echo(connection_fd, request);
-            break;
+		handle_echo(connection_fd, request);
+		break;
         case CMD_SET:
-            handle_set(connection_fd, request, ht);
-            break;
+		handle_set(connection_fd, request, ht);
+		break;
         case CMD_GET:
-            handle_get(connection_fd, request, ht);
-            break;
+		handle_get(connection_fd, request, ht);
+		break;
         case CMD_DEL:
-            handle_del(connection_fd, request, ht);
-            break;
+		handle_del(connection_fd, request, ht);
+		break;
+	case CMD_CONFIG:
+		if (request->data.array.count < 2) {
+			printf("Error: CONFIG GET requires at least one argument\n");
+			break;
+		} else {
+			if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dir") == 0) {
+				const char *values[] = {"dir", RedisConfig.dir};
+				char* dir = convert_to_resp_bulk(2, values);
+				say(connection_fd, dir);
+			} else if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dbfilename") == 0) {
+				const char *values[] = {"dbfilename", RedisConfig.dbfilename};
+				char* dbfilename = convert_to_resp_bulk(2, values);
+				say(connection_fd, dbfilename);
+			} else {
+				printf("Error: CONFIG GET requires at least one argument\n");
+				break;
+			}
+		}
+		break;
         default:
-            say(connection_fd, "-ERR unknown command\r\n");
+		say(connection_fd, "-ERR unknown command\r\n");
     }
 }
 
 //----------------------------------------------------------------
 // MAIN FUNCTION
 
-int main() {
+int main(int argc, char *argv[]) {
 	// Disable output buffering
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
 	
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	printf("Logs from your program will appear here!\n");
+
+
+	// Store the arguments provided by user
+	char* dir = NULL;
+	char* dbfilename = NULL;
+
+	struct option long_options[] = {
+		{"dir", required_argument, 0, 'd'},
+		{"dbfilename", required_argument, 0, 'f'},
+		{0, 0, 0, 0}
+	};
+
+	int opt;
+	int option_index = 0;
+
+	// Loop to process options
+	while ((opt = getopt_long(argc, argv, "df:", long_options, &option_index)) != -1) {
+		switch (opt) {
+			case 'd':
+				RedisConfig.dir = optarg;
+				break;
+			case 'f':
+				RedisConfig.dbfilename = optarg;
+				break;
+			default:
+				break;
+	    }
+	}
+
+	printf("Directory:%s\n", RedisConfig.dir);
+	printf("File name:%s\n", RedisConfig.dbfilename);
 
 	// Uncomment this block to pass the first stage
 	//
