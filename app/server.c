@@ -251,7 +251,7 @@ char *convert_to_resp_bulk(int count, const char *strings[]) {
 	snprintf(result, buffer_size, "*%d\r\n", count);
 
 	for (int i = 0; i < count; i++) {
-	const char *str = strings[i];
+		const char *str = strings[i];
 		char buffer[256];
 
 		if (str == NULL) {
