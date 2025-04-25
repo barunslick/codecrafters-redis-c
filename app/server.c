@@ -10,6 +10,8 @@
 #include <getopt.h>
 
 #include "hashtable.h"
+#include "helper.h"
+#include "rdb.h"
 
 
 #define DEFAULT_REDIS_PORT 6379
@@ -27,10 +29,6 @@ struct RedisConfig {
 
 //----------------------------------------------------------------
 // HELPER FUNCTIONS 
-void error(char * msg){
-	fprintf(stderr, "%s: %s\n", msg, strerror(errno));
-	exit(1);
-}
 
 int create_server_socket() {
 	int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -48,15 +46,15 @@ void bind_to_port(int socket, int port, int reuse) {
 
 
 	if (setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
-		error("SO_REUSEADDR failed");
+		exit_with_error("SO_REUSEADDR failed");
 
 	if (bind(socket, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) != 0)
-		error("Bind failed");
+		exit_with_error("Bind failed");
 }
 
 void say(int socket, char * msg) {
 	if (send(socket, msg, strlen(msg), 0) == -1)
-		error("Send failed");
+		exit_with_error("Send failed");
 }
 
 int read_in(int socket, char *buf, int len) {
@@ -81,7 +79,7 @@ int read_in(int socket, char *buf, int len) {
 
 	if (bytes_read < 0) {
 		// Error occurred during recv
-		error("Read failed");
+		exit_with_error("Read failed");
 	} else if (bytes_read == 0) {
 		// Connection closed, return an empty string
 		buf[0] = '\0';
@@ -176,7 +174,7 @@ RESPData* parse_resp_buffer(char **buf) {
 		// case '+':
 		// 	return parse_simple_string(buf);
 		// case '-':
-		// 	return parse_error(buf);
+		// 	return parse_exit_with_error(buf);
 		// case ':':
 		// 	return parse_integer(buf);
 		case '$':
@@ -241,10 +239,8 @@ char *convert_to_resp_bulk(int count, const char *strings[]) {
 	// TODO: Make this resizable
 	size_t buffer_size = 1024;
 	char *result = malloc(buffer_size);
-	if (!result) {
-		perror("Failed to allocate memory");
-		exit(EXIT_FAILURE);
-	}
+	if (!result)
+		exit_with_error("Memory allocation failed");	
 	result[0] = '\0'; // Start with an empty string
 
 	// Add the *<count> prefix to indicate the number of elements
@@ -495,7 +491,17 @@ int main(int argc, char *argv[]) {
 	}
 
 	char buf[MAX_BUFFER_SIZE];
-	ht_table *ht = ht_create();
+
+	ht_table *ht;
+
+	// Load the RDB file into the hash table
+	if (RedisConfig.dbfilename != NULL) {
+		char *rdb_path = malloc(strlen(RedisConfig.dir) + strlen(RedisConfig.dbfilename) + 2);
+		sprintf(rdb_path, "%s/%s", RedisConfig.dir, RedisConfig.dbfilename);
+		printf("Loading RDB file from path: %s\n", rdb_path);
+		ht = load_from_rdb_file(rdb_path);
+		free(rdb_path);
+	}
 	
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;
@@ -504,6 +510,8 @@ int main(int argc, char *argv[]) {
 		process_command(connection_fd, request, ht);
 		free_resp_data(request);
 	}
+
+	ht_destroy(ht);
 	
 	if (pid) {
 		close(server_fd);
