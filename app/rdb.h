@@ -6,7 +6,7 @@
 
 typedef struct {
     int fd;
-    int in_segment;
+    int eof_segment;
     unsigned char* buffer;
     size_t size;
     size_t pos;

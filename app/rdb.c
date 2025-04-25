@@ -36,8 +36,7 @@ rdb_buffer_context* init_rdb_context(const char* file_name, size_t size) {
 
     buff->size = read(fd, buff->buffer, size);
     buff->pos = 0;
-    buff->in_segment = 0;
-
+    buff->eof_segment = 0;
     return buff;
 }
 
@@ -82,7 +81,6 @@ int check_and_fill_buffer(rdb_buffer_context* context, size_t needed_bytes) {
     context->size += bytes_read;
 
     return (context->size - context->pos) > 0;
-
 }
 
 
@@ -94,8 +92,6 @@ void parse_metadata_section(rdb_buffer_context* context) {
     // FA                             // Indicates the start of a metadata subsection.
     // 09 72 65 64 69 73 2D 76 65 72  // The name of the metadata attribute (string encoded): "redis-ver".
     // 06 36 2E 30 2E 31 36           // The value of the metadata attribute (string encoded): "6.0.16".
-
-    context->in_segment = 1;
 
     unsigned char* key = parse_string_encoding(context, NULL);
     if (key == NULL) {
@@ -114,7 +110,6 @@ void parse_metadata_section(rdb_buffer_context* context) {
     free(key);
     free(value);
 
-    context->in_segment = 0; // We are done with the metadata section
 }
 
 
@@ -128,13 +123,23 @@ void parse_database_section(ht_table* ht, rdb_buffer_context* context) {
     //     Here, the total key-value hash table size is 3. */
     // 02/* The size of the hash table that stores the expires of the keys (size encoded).
     //     Here, the number of keys with an expiry is 2. */
-    context->in_segment = 1;
-
-    unsigned char db_index = read_byte_from_buffer(context);
+    uint64_t db_index = parse_size_encoding(context);
     if (db_index < 0) {
         error("Failed to parse database index.");
         return;
     }
+
+    int hash_table_type = read_byte_from_buffer(context);
+    if (hash_table_type < 0) {
+        error("Failed to read hash table type.");
+        return;
+    }
+    unsigned char hash_table_byte = (unsigned char)hash_table_type;
+    if (hash_table_byte != 0xFB) {
+        error("Invalid hash table type.");
+        return;
+    }
+
     uint64_t hash_table_size = parse_size_encoding(context);
     if (hash_table_size < 0) {
         error("Failed to parse hash table size.");
@@ -147,138 +152,140 @@ void parse_database_section(ht_table* ht, rdb_buffer_context* context) {
     }
     printf("DB Index: %d, Hash Table Size: %lu, Expires Size: %lu\n", db_index, hash_table_size, expires_size);
 
-    unsigned char key_type = read_byte_from_buffer(context);
 
     unsigned char * key;
     unsigned char * value;
+    int key_type;
     unsigned char value_type;
     uint64_t expire_time;
     
-    switch (key_type) {
-        case 0x00:
-            // String type
-            // 00                       /* The 1-byte flag that specifies the value’s type and encoding.
-                                        // Here, the flag is 0, which means "string." */
-            // 06 66 6F 6F 62 61 72     // The name of the key (string encoded). Here, it's "foobar".
-            // 06 62 61 7A 71 75 78     // The value (string encoded). Here, it's "bazqux".
-            value_type = read_byte_from_buffer(context);
-            if (value_type != 0x00) {
-                error("Value type not supported.");
-                free(key);
-                free(value);
-                return;
-            }
-            key = parse_string_encoding(context, NULL);
-            if (key == NULL) {
-                error("Failed to parse key from metadata section.");
-                return;
-            }
-            value = parse_string_encoding(context, NULL);
-            if (value == NULL) {
-                error("Failed to parse value from metadata section.");
-                free(key);
-                free(value);
-                return;
-            }
-            printf("Key: %s, Value: %s\n", key, value);
-            if(ht_set(ht, key, value, 0) == NULL) {
-                error("Failed to set key-value pair in hash table.");
-                free(key);
-                free(value);
-                return;
-            }
-            break;
-        case 0xFC:
-            // With expire in milliseconds
-            // FC                       /* Indicates that this key ("foo") has an expire,
-                                        // and that the expire timestamp is expressed in milliseconds. */
-            // 15 72 E7 07 8F 01 00 00  /* The expire timestamp, expressed in Unix time,
-                                        // stored as an 8-byte unsigned long, in little-endian (read right-to-left).
-                                        // Here, the expire timestamp is 1713824559637. */
-            // 00                       // Value type is string.
-            // 03 66 6F 6F              // Key name is "foo".
-            // 03 62 61 72              // Value is "bar".
+    while (1 && !context->eof_segment) {
+        key_type = read_byte_from_buffer(context);
+        if (key_type < 0) {
+            break; // End of file or read error
+        }
+        unsigned char key_byte = (unsigned char)key_type;
+        switch (key_byte) {
+            case 0x00:
+                // String type
+                // 00                       /* The 1-byte flag that specifies the value’s type and encoding.
+                                            // Here, the flag is 0, which means "string." */
+                // 06 66 6F 6F 62 61 72     // The name of the key (string encoded). Here, it's "foobar".
+                // 06 62 61 7A 71 75 78     // The value (string encoded). Here, it's "bazqux".
+                key = parse_string_encoding(context, NULL);
+                if (key == NULL) {
+                    error("Failed to parse key from metadata section.");
+                    return;
+                }
+                value = parse_string_encoding(context, NULL);
+                if (value == NULL) {
+                    error("Failed to parse value from metadata section.");
+                    free(key);
+                    free(value);
+                    return;
+                }
+                printf("Key: %s, Value: %s\n", key, value);
+                if(ht_set(ht, key, value, 0) == NULL) {
+                    error("Failed to set key-value pair in hash table.");
+                    free(key);
+                    free(value);
+                    return;
+                }
+                continue;
+            case 0xFC:
+                // With expire in milliseconds
+                // FC                       /* Indicates that this key ("foo") has an expire,
+                                            // and that the expire timestamp is expressed in milliseconds. */
+                // 15 72 E7 07 8F 01 00 00  /* The expire timestamp, expressed in Unix time,
+                                            // stored as an 8-byte unsigned long, in little-endian (read right-to-left).
+                                            // Here, the expire timestamp is 1713824559637. */
+                // 00                       // Value type is string.
+                // 03 66 6F 6F              // Key name is "foo".
+                // 03 62 61 72              // Value is "bar".
 
-            check_and_fill_buffer(context, 8);
-            expire_time = (uint64_t)context->buffer[context->pos++] |
-                            ((uint64_t)context->buffer[context->pos++] << 8)  |
-                            ((uint64_t)context->buffer[context->pos++] << 16) |
-                            ((uint64_t)context->buffer[context->pos++] << 24) |
-                            ((uint64_t)context->buffer[context->pos++] << 32) |
-                            ((uint64_t)context->buffer[context->pos++] << 40) |
-                            ((uint64_t)context->buffer[context->pos++] << 48) |
-                            ((uint64_t)context->buffer[context->pos++] << 56);
-
-            value_type = read_byte_from_buffer(context);
-            if (value_type != 0x00) {
-                error("Value type not supported for now.");
-                free(key);
-                free(value);
-                return;
-            }
-
-            key = parse_string_encoding(context, NULL);
-            if (key == NULL) {
-                error("Failed to parse key from metadata section.");
-                return;
-            }
-            value = parse_string_encoding(context, NULL);
-            if (value == NULL) {
-                error("Failed to parse value from metadata section.");
-                free(key);
-                free(value);
-                return;
-            }
-            printf("Key: %s, Value: %s, Expire Time: %lu\n", key, value, expire_time);
-            ht_set(ht, key, value, expire_time);
-            break;
-        case 0xFD:
-            // With expire in seconds
-            //FD                       /* Indicates that this key ("baz") has an expire,
-                                        //and that the expire timestamp is expressed in seconds. */
-            //52 ED 2A 66              /* The expire timestamp, expressed in Unix time,
-                                        //stored as an 4-byte unsigned integer, in little-endian (read right-to-left).
-                                        //Here, the expire timestamp is 1714089298. */
-            //00                       // Value type is string.
-            //03 62 61 7A              // Key name is "baz".
-            //03 71 75 78              // Value is "qux".
-            check_and_fill_buffer(context, 4);
-            expire_time = (uint64_t)context->buffer[context->pos++] |
+                check_and_fill_buffer(context, 8);
+                expire_time = (uint64_t)context->buffer[context->pos++] |
                                 ((uint64_t)context->buffer[context->pos++] << 8)  |
                                 ((uint64_t)context->buffer[context->pos++] << 16) |
-                                ((uint64_t)context->buffer[context->pos++] << 24);
+                                ((uint64_t)context->buffer[context->pos++] << 24) |
+                                ((uint64_t)context->buffer[context->pos++] << 32) |
+                                ((uint64_t)context->buffer[context->pos++] << 40) |
+                                ((uint64_t)context->buffer[context->pos++] << 48) |
+                                ((uint64_t)context->buffer[context->pos++] << 56);
 
-            
-            value_type = read_byte_from_buffer(context);
-            if (value_type != 0x00) {
-                error("Value type not supported for now.");
-                free(key);
-                free(value);
-                return;
-            }
+                value_type = read_byte_from_buffer(context);
+                if (value_type != 0x00) {
+                    error("Value type not supported for now.");
+                    free(key);
+                    free(value);
+                    return;
+                }
 
-            unsigned char* key = parse_string_encoding(context, NULL);
-            if (key == NULL) {
-                error("Failed to parse key from metadata section.");
-                return;
-            }
-            unsigned char* value = parse_string_encoding(context, NULL);
-            if (value == NULL) {
-                error("Failed to parse value from metadata section.");
-                free(key);
-                return;
-            }
-            ht_set(ht, key, value, expire_time);
-            printf("Key: %s, Value: %s, Expire Time(in seconds): %lu\n", key, value, expire_time * 1000);
-            break;
-        default:
-            error("Unknown key type.");
-            break;
+                key = parse_string_encoding(context, NULL);
+                if (key == NULL) {
+                    error("Failed to parse key from metadata section.");
+                    return;
+                }
+                value = parse_string_encoding(context, NULL);
+                if (value == NULL) {
+                    error("Failed to parse value from metadata section.");
+                    free(key);
+                    free(value);
+                    return;
+                }
+                printf("Key: %s, Value: %s, Expire Time: %lu\n", key, value, expire_time);
+                ht_set(ht, key, value, expire_time);
+                continue;
+            case 0xFD:
+                // With expire in seconds
+                //FD                       /* Indicates that this key ("baz") has an expire,
+                                            //and that the expire timestamp is expressed in seconds. */
+                //52 ED 2A 66              /* The expire timestamp, expressed in Unix time,
+                                            //stored as an 4-byte unsigned integer, in little-endian (read right-to-left).
+                                            //Here, the expire timestamp is 1714089298. */
+                //00                       // Value type is string.
+                //03 62 61 7A              // Key name is "baz".
+                //03 71 75 78              // Value is "qux".
+                check_and_fill_buffer(context, 4);
+                expire_time = (uint64_t)context->buffer[context->pos++] |
+                                    ((uint64_t)context->buffer[context->pos++] << 8)  |
+                                    ((uint64_t)context->buffer[context->pos++] << 16) |
+                                    ((uint64_t)context->buffer[context->pos++] << 24);
+
+
+                value_type = read_byte_from_buffer(context);
+                if (value_type != 0x00) {
+                    error("Value type not supported for now.");
+                    free(key);
+                    free(value);
+                    return;
+                }
+
+                unsigned char* key = parse_string_encoding(context, NULL);
+                if (key == NULL) {
+                    error("Failed to parse key from metadata section.");
+                    return;
+                }
+                unsigned char* value = parse_string_encoding(context, NULL);
+                if (value == NULL) {
+                    error("Failed to parse value from metadata section.");
+                    free(key);
+                    return;
+                }
+                ht_set(ht, key, value, expire_time);
+                printf("Key: %s, Value: %s, Expire Time(in seconds): %lu\n", key, value, expire_time * 1000);
+                continue;
+            case 0xFF:
+                printf("End of file segment.\n");
+                context->eof_segment = 1;
+                break;
+            default:
+                break;
+        }
+
+        free(key);
+        free(value);
     }
-
-    free(key);
-    free(value);
-    context->in_segment = 1;
 }
 
 
@@ -413,15 +420,18 @@ void load_from_rdb_file(ht_table* ht, const char* file_path) {
         error("Failed to seek in the file.");
         goto cleanup;
     }
-    context->pos += 9;
+    context->pos += 8;
 
     while(1) {
-        unsigned char byte = read_byte_from_buffer(context);
+        if (context->eof_segment == 1) goto cleanup; // End of file. Leave it for now
+
+        int byte = read_byte_from_buffer(context);
         if (byte < 0) { // End of file or read error
             break;
         }
 
-        switch (byte) {
+        unsigned char first_byte = (unsigned char)byte;
+        switch (first_byte) {
             case 0xFA:
                 // Metadata section
                 parse_metadata_section(context);
@@ -429,11 +439,10 @@ void load_from_rdb_file(ht_table* ht, const char* file_path) {
             case 0xFE:
                 // Database section
                 parse_database_section(ht, context);
-                break;
+                continue;
             case 0xFF:
                 // End of file
                 goto cleanup;
-                break;
             default:
                 break;
         }
