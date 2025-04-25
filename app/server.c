@@ -333,7 +333,7 @@ void handle_set(int connection_fd, RESPData* request, ht_table* ht) {
 	if (request->data.array.count > 3 && strcasecmp(request->data.array.elements[3]->data.str, "px") == 0)
 		expiry = (uint64_t) strtol(request->data.array.elements[4]->data.str, NULL, 10);
 
-	if (ht_set(ht, key, value, expiry) == NULL) {
+	if (ht_set_with_relative_expiry(ht, key, value, expiry) == NULL) {
 		say(connection_fd, "-ERR failed to set key\r\n");
 		return;
 	}

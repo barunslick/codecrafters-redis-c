@@ -77,11 +77,6 @@ const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expir
 		return NULL;
 	}
 
-	// get absolute time for expiry
-	uint64_t expiry_abs = 0;
-	if (expiry > 0)
-		expiry_abs = expiry + get_current_epoch_ms();
-	
 	// TODO LATER: If we're at 75% capacity, resize the table.
 	if (table->length >= table->capacity)
 		return NULL;
@@ -92,7 +87,7 @@ const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expir
 	while (table->entries[index].key != NULL) {
 		if (strcmp(key, table->entries[index].key) == 0) {
 			table->entries[index].value = value;
-			table->entries[index].expiry = expiry_abs;
+			table->entries[index].expiry = expiry;
 			return key;
 		}
 		index++;
@@ -102,8 +97,16 @@ const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expir
 
 	table->entries[index].key = strdup(key);
 	table->entries[index].value = value;
-	table->entries[index].expiry = expiry_abs;
+	table->entries[index].expiry = expiry;
 	table->length++;
+}
+
+const char * ht_set_with_relative_expiry(ht_table* table, const char* key, void* value, uint64_t expiry) {
+	// get absolute time for expiry
+	uint64_t expiry_abs = 0;
+	if (expiry > 0)
+		expiry_abs = expiry + get_current_epoch_ms();
+	ht_set(table, key, value, expiry_abs);
 }
 
 void ht_del(ht_table* table, const char* key) {
