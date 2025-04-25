@@ -232,9 +232,9 @@ RESPData* parse_array(char **buf) {
 
 
 //----------------------------------------------------------------
-// ENCOERS
+// ENCODERS
 
-char *convert_to_resp_bulk(int count, const char *strings[]) {
+char* convert_to_resp_bulk(int count, const char *strings[]) {
 	// Allocate a buffer with enough space for the expected output
 	// TODO: Make this resizable
 	size_t buffer_size = 1024;
@@ -275,7 +275,8 @@ typedef enum {
 	CMD_GET,
 	CMD_DEL,
 	CMD_CONFIG,
-	CMD_UNKNOWN
+	CMD_KEYS,
+	CMD_UNKNOWN,
 } CommandType;
 
 typedef struct {
@@ -285,13 +286,14 @@ typedef struct {
 	const char* name;
 } CommandInfo;
 
-// Command speciofication with max and min arguments
+// Command specification with max and min arguments
 static const CommandInfo COMMANDS[] = {
 	{CMD_PING, 1, 1, "PING"},
 	{CMD_ECHO, 2, 2, "ECHO"},
 	{CMD_SET, 3, 5, "SET"},
 	{CMD_GET, 2, 2, "GET"},
 	{CMD_DEL, 2, 2, "DEL"},
+	{CMD_KEYS, 2, 2, "KEYS"},
 	{CMD_CONFIG, 3, 3, "CONFIG"}
 };
 
@@ -375,41 +377,50 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht) {
 
     switch (cmd) {
         case CMD_PING:
-		handle_ping(connection_fd);
-		break;
-        case CMD_ECHO:
-		handle_echo(connection_fd, request);
-		break;
-        case CMD_SET:
-		handle_set(connection_fd, request, ht);
-		break;
-        case CMD_GET:
-		handle_get(connection_fd, request, ht);
-		break;
-        case CMD_DEL:
-		handle_del(connection_fd, request, ht);
-		break;
-	case CMD_CONFIG:
-		if (request->data.array.count < 2) {
-			printf("Error: CONFIG GET requires at least one argument\n");
+			handle_ping(connection_fd);
 			break;
-		} else {
-			if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dir") == 0) {
-				const char *values[] = {"dir", RedisConfig.dir};
-				char* dir = convert_to_resp_bulk(2, values);
-				say(connection_fd, dir);
-			} else if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dbfilename") == 0) {
-				const char *values[] = {"dbfilename", RedisConfig.dbfilename};
-				char* dbfilename = convert_to_resp_bulk(2, values);
-				say(connection_fd, dbfilename);
-			} else {
+        case CMD_ECHO:
+			handle_echo(connection_fd, request);
+			break;
+        case CMD_SET:
+			handle_set(connection_fd, request, ht);
+			break;
+        case CMD_GET:
+			handle_get(connection_fd, request, ht);
+			break;
+        case CMD_DEL:
+			handle_del(connection_fd, request, ht);
+			break;
+		case CMD_CONFIG:
+			if (request->data.array.count < 2) {
 				printf("Error: CONFIG GET requires at least one argument\n");
 				break;
+			} else {
+				if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dir") == 0) {
+					const char *values[] = {"dir", RedisConfig.dir};
+					char* dir = convert_to_resp_bulk(2, values);
+					say(connection_fd, dir);
+				} else if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0 && strcmp(request->data.array.elements[2]->data.str, "dbfilename") == 0) {
+					const char *values[] = {"dbfilename", RedisConfig.dbfilename};
+					char* dbfilename = convert_to_resp_bulk(2, values);
+					say(connection_fd, dbfilename);
+				} else {
+					printf("Error: CONFIG GET requires at least one argument\n");
+					break;
+				}
 			}
+			break;
+		case CMD_KEYS: {
+			const char *pattern = request->data.array.elements[1]->data.str;
+			// For now convert all the keys and values to RESP and send it.
+			size_t count = 0;
+			const char** keys = ht_get_keys(ht, &count);
+			char *keys_resp = convert_to_resp_bulk(count, keys);
+			say(connection_fd, keys_resp);
+			break;
 		}
-		break;
         default:
-		say(connection_fd, "-ERR unknown command\r\n");
+			say(connection_fd, "-ERR unknown command\r\n");
     }
 }
 
@@ -492,16 +503,17 @@ int main(int argc, char *argv[]) {
 
 	char buf[MAX_BUFFER_SIZE];
 
-	ht_table *ht;
+	ht_table *ht = ht_create();
 
 	// Load the RDB file into the hash table
 	if (RedisConfig.dbfilename != NULL) {
 		char *rdb_path = malloc(strlen(RedisConfig.dir) + strlen(RedisConfig.dbfilename) + 2);
 		sprintf(rdb_path, "%s/%s", RedisConfig.dir, RedisConfig.dbfilename);
 		printf("Loading RDB file from path: %s\n", rdb_path);
-		ht = load_from_rdb_file(rdb_path);
+		load_from_rdb_file(ht, rdb_path);
 		free(rdb_path);
 	}
+
 	
 	while(read_in(connection_fd, buf, sizeof(buf))){
 		char *parse_buf = buf;

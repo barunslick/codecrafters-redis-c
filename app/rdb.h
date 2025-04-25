@@ -14,7 +14,7 @@ typedef struct {
 
 // Buffer management functions
 rdb_buffer_context* init_rdb_context(const char* file_name, size_t size);
-unsigned char read_byte_from_buffer(rdb_buffer_context* buff);
+int read_byte_from_buffer(rdb_buffer_context* buff);
 int check_and_fill_buffer(rdb_buffer_context* context, size_t needed_bytes);
 
 // Segment level parsers
@@ -25,4 +25,4 @@ uint64_t parse_size_encoding(rdb_buffer_context* context);
 unsigned char* parse_string_encoding(rdb_buffer_context* context, size_t* size);
 
 // Main API
-ht_table* load_from_rdb_file(const char* filename);
+void load_from_rdb_file(ht_table* ht, const char* filename);

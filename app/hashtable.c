@@ -134,3 +134,25 @@ void ht_del(ht_table* table, const char* key) {
 
 	return;
 }
+
+
+const char** ht_get_keys(ht_table* table, size_t* count) {
+	if (table == NULL || count == NULL) {
+		return NULL;
+	}
+
+	*count = table->length;
+	const char** keys = malloc(table->length * sizeof(const char*));
+	if (keys == NULL) {
+		return NULL;
+	}
+
+	size_t key_index = 0;
+	for (size_t i = 0; i < table->capacity; i++) {
+		if (table->entries[i].key != NULL) {
+			keys[key_index++] = table->entries[i].key;
+		}
+	}
+
+	return keys;
+}
