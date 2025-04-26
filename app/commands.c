@@ -28,12 +28,6 @@ static const CommandInfo COMMANDS[] = {
     {CMD_INFO, 2, 2, "INFO"},
 };
 
-// Helper function to send response
-static void say(int socket, char *msg) {
-    if (send(socket, msg, strlen(msg), 0) == -1)
-        exit_with_error("Send failed");
-}
-
 // Command validation and parsing
 static CommandType get_command_type(const char* cmd_str) {
     for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
