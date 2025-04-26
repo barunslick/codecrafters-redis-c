@@ -33,7 +33,10 @@ ht_table* ht_create() {
 
 void ht_destroy(ht_table* table) {
 	for (size_t i = 0; i < table->capacity; i++) {
-		free((void*)table->entries[i].key);
+		if (table->entries[i].key != NULL) {
+			free((void*)table->entries[i].key);
+			free(table->entries[i].value);  // Free the allocated value
+		}
 	}
 
 	free(table->entries);
@@ -84,9 +87,17 @@ const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expir
 	uint64_t hash = hash_key(key);
 	size_t index = (size_t)(hash & (uint64_t)(table->capacity - 1));
 
+	// Make a deep copy of the value string
+	char* value_copy = strdup((const char*)value);
+	if (value_copy == NULL) {
+		return NULL;  // Memory allocation failed
+	}
+
 	while (table->entries[index].key != NULL) {
 		if (strcmp(key, table->entries[index].key) == 0) {
-			table->entries[index].value = value;
+			// Free the old value before replacing it
+			free(table->entries[index].value);
+			table->entries[index].value = value_copy;
 			table->entries[index].expiry = expiry;
 			return key;
 		}
@@ -96,9 +107,16 @@ const char* ht_set(ht_table* table, const char* key, void* value, uint64_t expir
 	}
 
 	table->entries[index].key = strdup(key);
-	table->entries[index].value = value;
+	if (table->entries[index].key == NULL) {
+		free(value_copy);  // Free allocated value if key allocation fails
+		return NULL;
+	}
+	
+	table->entries[index].value = value_copy;
 	table->entries[index].expiry = expiry;
 	table->length++;
+	
+	return table->entries[index].key;
 }
 
 const char * ht_set_with_relative_expiry(ht_table* table, const char* key, void* value, uint64_t expiry) {
@@ -124,6 +142,7 @@ void ht_del(ht_table* table, const char* key) {
 	while (table->entries[index].key != NULL) {
 		if (strcmp(key, table->entries[index].key) == 0) {
 			free((void*)table->entries[index].key);
+			free(table->entries[index].value);  // Free the value we allocated
 			table->entries[index].key = NULL;
 			table->entries[index].value = NULL;
 			table->entries[index].expiry = 0;

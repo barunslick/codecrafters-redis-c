@@ -1,6 +1,5 @@
-#include <stdio.h>
-#include <stdint.h>
-
+#ifndef RDB_H
+#define RDB_H
 
 #define RDB_READ_BUFFER_SIZE 1024
 
@@ -26,3 +25,5 @@ unsigned char* parse_string_encoding(rdb_buffer_context* context, size_t* size);
 
 // Main API
 void load_from_rdb_file(ht_table* ht, const char* filename);
+
+#endif // RDB_H
