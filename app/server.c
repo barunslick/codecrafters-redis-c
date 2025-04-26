@@ -94,11 +94,16 @@ int main(int argc, char *argv[]) {
 	printf("Logs from your program will appear here!\n");
 
 	// Initialize Redis configuration
-	RedisConfig config = {0};
+	RedisConfig config = {
+    	.port = DEFAULT_REDIS_PORT,
+    	.dir = NULL,
+    	.dbfilename = NULL
+	};
 
 	struct option long_options[] = {
 		{"dir", required_argument, 0, 'd'},
 		{"dbfilename", required_argument, 0, 'f'},
+		{"port", required_argument, 0, 'p'},
 		{0, 0, 0, 0}
 	};
 
@@ -113,6 +118,12 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'f':
 				config.dbfilename = optarg;
+				break;
+			case 'p':
+				config.port = (uint16_t)atoi(optarg);
+				if (config.port <= 0 || config.port > 65535) {
+					exit_with_error("Invalid port number");
+				}
 				break;
 			default:
 				break;
@@ -132,7 +143,7 @@ int main(int argc, char *argv[]) {
 	// Since the tester restarts your program quite often, setting SO_REUSEADDR
 	// ensures that we don't run into 'Address already in use' errors
 	int reuse = 1;
-	bind_to_port(server_fd, DEFAULT_REDIS_PORT, reuse);
+	bind_to_port(server_fd, config.port, reuse);
 
 	int connection_backlog = 5;
 	if (listen(server_fd, connection_backlog) != 0) {

@@ -8,6 +8,7 @@
 typedef struct {
     char *dir;
     char *dbfilename;
+    uint16_t port;
 } RedisConfig;
 
 // Command type enum
