@@ -27,6 +27,10 @@ RedisStats* init_redis_stats() {
     // Initialize others section
     snprintf(stats->others.rdb_dir, sizeof(stats->others.rdb_dir), "/var/lib/redis");
     snprintf(stats->others.rdb_filename, sizeof(stats->others.rdb_filename), "dump.rdb");
+
+    // Set replid to 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 
+    snprintf(stats->replication.master_replid, sizeof(stats->replication.master_replid), "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb");
+    stats->replication.master_repl_offset = 0;
     
     return stats;
 }

@@ -140,17 +140,21 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
         // Add # Replication heading
         // USe stats->replication.role
         // Add role
-        const char* replication_header = "# Replication\r\n";
-        size_t second_string_size = strlen("role:") + strlen(stats->replication.role) + 1;
-
-        char* replication_info = malloc(strlen(replication_header) + second_string_size + 1);
-        if (replication_info == NULL) {
-            say(connection_fd, "-ERR Memory allocation failed\r\n");
-            return;
+        size_t buffer_size = 1024;
+        size_t cursor = 0;
+        char* buffer = malloc(buffer_size);
+        if (buffer == NULL) {
+            exit_with_error("Memory allocation failed");
         }
-        snprintf(replication_info, strlen(replication_header) + second_string_size + 1, "%srole:%s\r\n", replication_header, stats->replication.role);
-        char* resp = convert_to_resp_string(replication_info);
+
+        cursor += snprintf(buffer + cursor, buffer_size - cursor, "# Replication\r\n");
+        cursor += snprintf(buffer + cursor, buffer_size - cursor, "role:%s\r\n", stats->replication.role);
+        cursor += snprintf(buffer + cursor, buffer_size - cursor, "master_replid:%s\r\n", stats->replication.master_replid);
+        cursor += snprintf(buffer + cursor, buffer_size - cursor, "master_repl_offset:%lu\r\n", stats->replication.master_repl_offset);
+
+        char* resp = convert_to_resp_string(buffer);
         say(connection_fd, resp);
+        free(buffer);
         free(resp);
     } else {
         say(connection_fd, "-ERR Unknown INFO type\r\n");

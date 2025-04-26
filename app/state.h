@@ -20,6 +20,8 @@ typedef struct {
         char role[8];
         char master_host[64];
         uint16_t master_port;
+        char master_replid[64];
+        uint64_t master_repl_offset;
     } replication;
 
 
