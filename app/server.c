@@ -15,8 +15,6 @@
 #include "resp.h"
 #include "commands.h"
 
-#define DEFAULT_REDIS_PORT 6379
-#define MAX_BUFFER_SIZE 1024
 
 //----------------------------------------------------------------
 // HELPER FUNCTIONS 
@@ -94,11 +92,7 @@ int main(int argc, char *argv[]) {
 	printf("Logs from your program will appear here!\n");
 
 	// Initialize Redis configuration
-	RedisConfig config = {
-    	.port = DEFAULT_REDIS_PORT,
-    	.dir = NULL,
-    	.dbfilename = NULL
-	};
+	RedisStats *stats = init_redis_stats();
 
 	struct option long_options[] = {
 		{"dir", required_argument, 0, 'd'},
@@ -114,24 +108,23 @@ int main(int argc, char *argv[]) {
 	while ((opt = getopt_long(argc, argv, "d:f:", long_options, &option_index)) != -1) {
 		switch (opt) {
 			case 'd':
-				config.dir = optarg;
+				snprintf(stats->others.rdb_dir, sizeof(stats->others.rdb_dir), "%s", optarg);
 				break;
 			case 'f':
-				config.dbfilename = optarg;
+				snprintf(stats->others.rdb_filename, sizeof(stats->others.rdb_filename), "%s", optarg);
 				break;
-			case 'p':
-				config.port = (uint16_t)atoi(optarg);
-				if (config.port <= 0 || config.port > 65535) {
+			case 'p': {
+				uint16_t port =  (uint16_t)atoi(optarg);
+				if (port < 1024 || port > 65535) {
 					exit_with_error("Invalid port number");
 				}
+				stats->server.tcp_port = port;
 				break;
+			}
 			default:
 				break;
 	    }
 	}
-
-	printf("Directory: %s\n", config.dir);
-	printf("File name: %s\n", config.dbfilename);
 
 	// Uncomment this block to pass the first stage
 	//
@@ -143,7 +136,7 @@ int main(int argc, char *argv[]) {
 	// Since the tester restarts your program quite often, setting SO_REUSEADDR
 	// ensures that we don't run into 'Address already in use' errors
 	int reuse = 1;
-	bind_to_port(server_fd, config.port, reuse);
+	bind_to_port(server_fd, stats->server.tcp_port, reuse);
 
 	int connection_backlog = 5;
 	if (listen(server_fd, connection_backlog) != 0) {
@@ -173,9 +166,9 @@ int main(int argc, char *argv[]) {
 	ht_table *ht = ht_create();
 
 	// Load the RDB file into the hash table
-	if (config.dbfilename != NULL && config.dir != NULL) {
-		char *rdb_path = malloc(strlen(config.dir) + strlen(config.dbfilename) + 2);
-		sprintf(rdb_path, "%s/%s", config.dir, config.dbfilename);
+	if (stats->others.rdb_filename[0] != '\0' && stats->others.rdb_dir[0] != '\0') {
+		char *rdb_path = malloc(strlen(stats->others.rdb_dir) + strlen(stats->others.rdb_filename) + 2);
+		sprintf(rdb_path, "%s/%s", stats->others.rdb_dir, stats->others.rdb_filename);
 		printf("Loading RDB file from path: %s\n", rdb_path);
 		load_from_rdb_file(ht, rdb_path);
 		free(rdb_path);
@@ -184,7 +177,7 @@ int main(int argc, char *argv[]) {
 	while(read_in(connection_fd, buf, sizeof(buf))) {
 		char *parse_buf = buf;
 		RESPData *request = parse_resp_buffer(&parse_buf);
-		process_command(connection_fd, request, ht, &config);
+		process_command(connection_fd, request, ht, stats);
 		free_resp_data(request);
 		free(request);
 	}

@@ -114,7 +114,7 @@ RESPData* parse_array(char **buf) {
     return data;
 }
 
-char* convert_to_resp_bulk(int count, const char *strings[]) {
+char* convert_to_resp_array(int count, const char *strings[]) {
     // Allocate a buffer with enough space for the expected output
     // TODO: Make this resizable
     size_t buffer_size = 1024;
@@ -141,5 +141,23 @@ char* convert_to_resp_bulk(int count, const char *strings[]) {
         strcat(result, buffer);
     }
 
+    return result;
+}
+
+
+char* convert_to_resp_string(const char *str) {
+    // $<length>\r\n<data>\r\n
+    if (str == NULL) {
+        return strdup("$-1\r\n");
+    }
+
+    int length = strlen(str);
+    char *result = malloc(length + 20); // Allocate enough space for the response
+    if (!result) {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(1);
+    }
+
+    snprintf(result, length + 20, "$%d\r\n%s\r\n", length, str);
     return result;
 }

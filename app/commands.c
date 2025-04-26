@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 
 #include "commands.h"
-#include "helper.h"
 
 // Command specification with max and min arguments
 typedef struct {
@@ -25,7 +24,8 @@ static const CommandInfo COMMANDS[] = {
     {CMD_GET, 2, 2, "GET"},
     {CMD_DEL, 2, 2, "DEL"},
     {CMD_KEYS, 2, 2, "KEYS"},
-    {CMD_CONFIG, 3, 3, "CONFIG"}
+    {CMD_CONFIG, 3, 3, "CONFIG"},
+    {CMD_INFO, 2, 2, "INFO"},
 };
 
 // Helper function to send response
@@ -96,7 +96,7 @@ void handle_del(int connection_fd, RESPData* request, ht_table* ht) {
     say(connection_fd, ":1\r\n");
 }
 
-void handle_config(int connection_fd, RESPData* request, RedisConfig* config) {
+void handle_config(int connection_fd, RESPData* request, RedisStats* stats) {
     if (request->data.array.count < 2) {
         say(connection_fd, "-ERR CONFIG requires at least one argument\r\n");
         return;
@@ -104,13 +104,13 @@ void handle_config(int connection_fd, RESPData* request, RedisConfig* config) {
     
     if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0) {
         if (strcmp(request->data.array.elements[2]->data.str, "dir") == 0) {
-            const char *values[] = {"dir", config->dir};
-            char* resp = convert_to_resp_bulk(2, values);
+            const char *values[] = {"dir", stats->others.rdb_dir};
+            char* resp = convert_to_resp_array(2, values);
             say(connection_fd, resp);
             free(resp);
         } else if (strcmp(request->data.array.elements[2]->data.str, "dbfilename") == 0) {
-            const char *values[] = {"dbfilename", config->dbfilename};
-            char* resp = convert_to_resp_bulk(2, values);
+            const char *values[] = {"dbfilename", stats->others.rdb_filename};
+            char* resp = convert_to_resp_array(2, values);
             say(connection_fd, resp);
             free(resp);
         } else {
@@ -126,14 +126,40 @@ void handle_keys(int connection_fd, RESPData* request, ht_table* ht) {
     // For now, return all keys without pattern matching
     size_t count = 0;
     const char** keys = ht_get_keys(ht, &count);
-    char *keys_resp = convert_to_resp_bulk(count, keys);
+    char *keys_resp = convert_to_resp_array(count, keys);
     say(connection_fd, keys_resp);
     free(keys_resp);
     free(keys);
 }
 
-// Main command processor
-void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisConfig* config) {
+
+void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
+    const char *info_type = request->data.array.elements[1]->data.str;
+
+    if (strcmp(info_type, "replication") == 0) {
+        // Add # Replication heading
+        // USe stats->persistence.role
+        // Add role
+        const char* replication_header = "# Replication\r\n";
+        size_t second_string_size = strlen("role:") + strlen(stats->persistence.role) + 1;
+
+        const char* replication_info = malloc(strlen(replication_header) + second_string_size + 1);
+        if (replication_info == NULL) {
+            say(connection_fd, "-ERR Memory allocation failed\r\n");
+            return;
+        }
+        snprintf(replication_info, strlen(replication_header) + second_string_size + 1, "%srole:%s\r\n", replication_header, stats->persistence.role);
+        char* resp = convert_to_resp_string(replication_info);
+        say(connection_fd, resp);
+        free(resp);
+    } else {
+        say(connection_fd, "-ERR Unknown INFO type\r\n");
+    }
+}
+
+// ----------------- Main command processor ----------------------------
+// ---------------------------------------------------------------------
+void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats) {
     if (request == NULL || request->type != RESP_ARRAY || request->data.array.count == 0) {
         say(connection_fd, "-ERR Invalid request\r\n");
         return;
@@ -164,10 +190,13 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisCo
             handle_del(connection_fd, request, ht);
             break;
         case CMD_CONFIG:
-            handle_config(connection_fd, request, config);
+            handle_config(connection_fd, request, stats);
             break;
         case CMD_KEYS:
             handle_keys(connection_fd, request, ht);
+            break;
+        case CMD_INFO:
+            handle_info(connection_fd, request, stats);
             break;
         default:
             say(connection_fd, "-ERR unknown command\r\n");

@@ -31,6 +31,7 @@ RESPData* parse_array(char** buf);
 void free_resp_data(RESPData* data);
 
 // Encoder functions
-char* convert_to_resp_bulk(int count, const char *strings[]);
+char* convert_to_resp_array(int count, const char *strings[]);
+char* convert_to_resp_string(const char *str);
 
 #endif // RESP_H
