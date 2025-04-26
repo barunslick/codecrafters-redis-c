@@ -23,6 +23,8 @@ RedisStats* init_redis_stats() {
 
     // Initialize replication section
     snprintf(stats->replication.role, sizeof(stats->replication.role), "master");
+    stats->replication.master_host = 0; // Default value
+    stats->replication.master_port = DEFAULT_REDIS_PORT; // Default value
 
     // Initialize others section
     snprintf(stats->others.rdb_dir, sizeof(stats->others.rdb_dir), "/var/lib/redis");

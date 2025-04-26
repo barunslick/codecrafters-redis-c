@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <arpa/inet.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -14,6 +15,7 @@
 #include "rdb.h"
 #include "resp.h"
 #include "commands.h"
+#include "replication.h"
 
 
 //----------------------------------------------------------------
@@ -24,9 +26,6 @@ int main(int argc, char *argv[]) {
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
 	
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	printf("Logs from your program will appear here!\n");
-
 	// Initialize Redis configuration
 	RedisStats *stats = init_redis_stats();
 
@@ -58,26 +57,25 @@ int main(int argc, char *argv[]) {
 				stats->server.tcp_port = port;
 				break;
 			}
-			case 'r':
+			case 'r': {
 				// Handle replicaof option
 				// For now, just print the value
 				snprintf(stats->replication.role, sizeof(stats->replication.role), "slave");
-				char *host = strtok(optarg, " ");
-				char *port_str = strtok(NULL, " ");
+				const char *host = strtok(optarg, " ");
+				const char *port_str = strtok(NULL, " ");
 				if (host != NULL && port_str != NULL) {
-					strncpy(stats->replication.master_host, host, sizeof(stats->replication.master_host));
+					stats->replication.master_host = INADDR_LOOPBACK;
 					stats->replication.master_port = (uint16_t)atoi(port_str);
 				} else {
 					exit_with_error("Invalid replicaof argument");
 				}
 				break;
+			}
 			default:
 				break;
 	    }
 	}
 
-	// Uncomment this block to pass the first stage
-	//
 	int server_fd, client_addr_len;
 	struct sockaddr_in client_addr;
 
@@ -86,7 +84,7 @@ int main(int argc, char *argv[]) {
 	// Since the tester restarts your program quite often, setting SO_REUSEADDR
 	// ensures that we don't run into 'Address already in use' errors
 	int reuse = 1;
-	bind_to_port(server_fd, stats->server.tcp_port, reuse);
+	bind_to_port(server_fd, INADDR_ANY, stats->server.tcp_port, reuse);
 
 	int connection_backlog = 5;
 	if (listen(server_fd, connection_backlog) != 0) {
@@ -99,6 +97,16 @@ int main(int argc, char *argv[]) {
 
 	int pid;
 	int connection_fd;
+
+	if (strcmp(stats->replication.role, "slave") == 0) {
+		int master_fd = connect_to_master(stats->replication.master_host, stats->replication.master_port);
+		if (master_fd < 0) {
+			exit_with_error("Failed to connect to master");
+		}
+		printf("Initiating handshake with master...\n");
+		initiative_handshake(master_fd);
+		close(master_fd);
+	}
 
 	while (1) { // Main program loop
 		connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);

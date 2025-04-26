@@ -18,7 +18,7 @@ typedef struct {
 
     struct {
         char role[8];
-        char master_host[64];
+        uint32_t master_host;
         uint16_t master_port;
         char master_replid[64];
         uint64_t master_repl_offset;

@@ -6,6 +6,8 @@
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #include "helper.h"
 
@@ -59,10 +61,10 @@ int create_server_socket() {
 	return server_fd;
 }
 
-void bind_to_port(int socket, int port, int reuse) {
+void bind_to_port(int socket, uint32_t host, int port, int reuse) {
 	struct sockaddr_in serv_addr = { .sin_family = AF_INET ,
 					 .sin_port = htons(port),
-					 .sin_addr = { htonl(INADDR_ANY) },
+					 .sin_addr = { htonl(host) },
 					};
 
 
@@ -109,4 +111,16 @@ int read_in(int socket, char *buf, int len) {
 
 	buf[len - remaining] = '\0';
 	return len - remaining;
+}
+
+uint32_t resolve_host(const char *hostname) {
+	if (hostname == NULL) {
+		return INADDR_ANY; // Return INADDR_ANY if hostname is NULL
+	}
+
+	if (strcmp(hostname, "localhost") == 0) {
+		return INADDR_LOOPBACK; // Return loopback address for localhost
+	}
+
+	return inet_addr(hostname); // Convert hostname to IP address
 }
