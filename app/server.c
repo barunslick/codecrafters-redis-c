@@ -98,6 +98,7 @@ int main(int argc, char *argv[]) {
 	int pid;
 	int connection_fd;
 
+	// Probably move the replication code to a separate process
 	if (strcmp(stats->replication.role, "slave") == 0) {
 		int master_fd = connect_to_master(stats->replication.master_host, stats->replication.master_port);
 		if (master_fd < 0) {
