@@ -98,6 +98,7 @@ int main(int argc, char *argv[]) {
 		{"dir", required_argument, 0, 'd'},
 		{"dbfilename", required_argument, 0, 'f'},
 		{"port", required_argument, 0, 'p'},
+		{"replicaof", required_argument, 0, 'r'},
 		{0, 0, 0, 0}
 	};
 
@@ -121,6 +122,20 @@ int main(int argc, char *argv[]) {
 				stats->server.tcp_port = port;
 				break;
 			}
+			case 'r':
+				// Handle replicaof option
+				// For now, just print the value
+				snprintf(stats->replication.role, sizeof(stats->replication.role), "slave");
+				char *host = strtok(optarg, " ");
+				char *port_str = strtok(NULL, " ");
+				if (host != NULL && port_str != NULL) {
+					strncpy(stats->replication.master_host, host, sizeof(stats->replication.master_host));
+					stats->replication.master_port = (uint16_t)atoi(port_str);
+				} else {
+					exit_with_error("Invalid replicaof argument");
+				}
+
+				break;
 			default:
 				break;
 	    }

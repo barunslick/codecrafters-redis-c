@@ -18,7 +18,9 @@ typedef struct {
 
     struct {
         char role[8];
-    } persistence;
+        char master_host[64];
+        uint16_t master_port;
+    } replication;
 
 
     // Some custom stats

@@ -138,17 +138,17 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
 
     if (strcmp(info_type, "replication") == 0) {
         // Add # Replication heading
-        // USe stats->persistence.role
+        // USe stats->replication.role
         // Add role
         const char* replication_header = "# Replication\r\n";
-        size_t second_string_size = strlen("role:") + strlen(stats->persistence.role) + 1;
+        size_t second_string_size = strlen("role:") + strlen(stats->replication.role) + 1;
 
         char* replication_info = malloc(strlen(replication_header) + second_string_size + 1);
         if (replication_info == NULL) {
             say(connection_fd, "-ERR Memory allocation failed\r\n");
             return;
         }
-        snprintf(replication_info, strlen(replication_header) + second_string_size + 1, "%srole:%s\r\n", replication_header, stats->persistence.role);
+        snprintf(replication_info, strlen(replication_header) + second_string_size + 1, "%srole:%s\r\n", replication_header, stats->replication.role);
         char* resp = convert_to_resp_string(replication_info);
         say(connection_fd, resp);
         free(resp);

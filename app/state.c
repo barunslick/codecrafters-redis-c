@@ -21,8 +21,8 @@ RedisStats* init_redis_stats() {
     stats->clients.maxclients = 10000; // Default value
 
 
-    // Initialize persistence section
-    snprintf(stats->persistence.role, sizeof(stats->persistence.role), "master");
+    // Initialize replication section
+    snprintf(stats->replication.role, sizeof(stats->replication.role), "master");
 
     // Initialize others section
     snprintf(stats->others.rdb_dir, sizeof(stats->others.rdb_dir), "/var/lib/redis");
