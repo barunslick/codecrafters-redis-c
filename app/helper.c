@@ -86,15 +86,19 @@ int read_in(int socket, char *buf, int len) {
 	int bytes_read;
 
 	// Read data from the socket in a loop
-	while ((bytes_read = recv(socket, buf, remaining, 0)) > 0) {
-		if (s[bytes_read - 1] == '\n' && s[bytes_read - 2] == '\r'){
-			// Null-terminate the string, replacing '\n' with '\0'
-			buf[bytes_read - 1] = '\0';	
-			return len - remaining + bytes_read;
-		}
+	while ((bytes_read = recv(socket, s, remaining, 0)) > 0) {
 		// Move the pointer forward and update the remaining space
 		s += bytes_read;
 		remaining -= bytes_read;
+
+		// Check if we have a complete message (ending with \r\n)
+		if (s - buf >= 2 && *(s-1) == '\n' && *(s-2) == '\r') {
+			// Add null terminator after \r\n for string operations
+			if (remaining > 0) {
+				*s = '\0';
+			}
+			return len - remaining;
+		}
 
 		// Prevent buffer overflow
 		if (remaining <= 0) break;
@@ -109,7 +113,13 @@ int read_in(int socket, char *buf, int len) {
 		return 0;
 	}
 
-	buf[len - remaining] = '\0';
+	// Ensure null termination at the end of the received data
+	if (remaining > 0) {
+		*s = '\0';
+	} else if (len > 0) {
+		buf[len - 1] = '\0';
+	}
+	
 	return len - remaining;
 }
 

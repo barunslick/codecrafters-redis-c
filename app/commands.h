@@ -24,6 +24,7 @@ typedef enum {
     CMD_KEYS,
     CMD_INFO,
     CMD_UNKNOWN,
+    CMD_REPLCONF,
 } CommandType;
 
 // Command functions
@@ -36,5 +37,6 @@ void handle_del(int connection_fd, RESPData* request, ht_table* ht);
 void handle_config(int connection_fd, RESPData* request, RedisStats* stats);
 void handle_keys(int connection_fd, RESPData* request, ht_table* ht);
 void handle_info(int connection_fd, RESPData* request, RedisStats* stats);
+void handle_replconf(int connection_fd, RESPData* request);
 
 #endif // COMMANDS_H

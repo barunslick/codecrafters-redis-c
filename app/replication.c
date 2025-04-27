@@ -29,16 +29,58 @@ int connect_to_master(uint32_t host, uint16_t port) {
     return sockfd;
 }
 
-void initiative_handshake(int master_fd) {
+void initiative_handshake(int master_fd, RedisStats *stats) {
     // Send handshake message to master
-    char buffer[1024];
+    char read_buffer[1024];
+    char write_buffer[1024];
 
     say(master_fd, "*1\r\n$4\r\nPING\r\n");
 
-    if (read_in(master_fd, buffer, sizeof(buffer)) < 0) {
+    if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
         perror("Failed to read from master");
         close(master_fd);
         return;
+    }
+
+    // Check PONG response
+    if (strncmp(read_buffer, "+PONG\r\n", 7) == 0) {
+        printf("Received PONG from master\n");
+    } else {
+        sprintf("Unexpected response from master: &s\n", read_buffer);
+    }
+
+    // Send REPLCONF message to master with port
+    snprintf(write_buffer, sizeof(write_buffer), "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%d\r\n", stats->server.tcp_port);
+
+    say(master_fd, write_buffer);
+
+    if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
+        perror("Failed to read from master");
+        close(master_fd);
+        return;
+    }
+
+    // Check OK response
+    if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+        printf("Received OK from master\n");
+    } else {
+        sprintf("Unexpected response from master: &s\n", read_buffer);
+    }
+
+    // Send REPLCONF message to master with capa
+    snprintf(write_buffer, sizeof(write_buffer), "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n");
+    say(master_fd, write_buffer);
+
+    if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
+        perror("Failed to read from master");
+        close(master_fd);
+        return;
+    }
+    // Check OK response
+    if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+        printf("Received OK from master\n");
+    } else {
+        sprintf("Unexpected response from master: &s\n", read_buffer);
     }
 
     return;

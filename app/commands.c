@@ -26,6 +26,7 @@ static const CommandInfo COMMANDS[] = {
     {CMD_KEYS, 2, 2, "KEYS"},
     {CMD_CONFIG, 3, 3, "CONFIG"},
     {CMD_INFO, 2, 2, "INFO"},
+    {CMD_REPLCONF, 3, 3, "REPLCONF"},
 };
 
 // Command validation and parsing
@@ -155,6 +156,21 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
     }
 }
 
+
+void handle_replconf(int connection_fd, RESPData* request) {
+    if (strcmp(request->data.array.elements[2]->data.str, "listening-port") == 0) {
+        // TODO: Handle listening-port later
+        say(connection_fd, "+OK\r\n");
+    } else if (strcmp(request->data.array.elements[2]->data.str, "capa") == 0) {
+        // TODO: Handle capa later
+        say(connection_fd, "+OK\r\n");
+    } else {
+        say(connection_fd, "-ERR Unknown REPLCONF command\r\n");
+    }
+
+    return;
+}
+
 // ----------------- Main command processor ----------------------------
 // ---------------------------------------------------------------------
 void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats) {
@@ -195,6 +211,9 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisSt
             break;
         case CMD_INFO:
             handle_info(connection_fd, request, stats);
+            break;
+        case CMD_REPLCONF:
+            handle_replconf(connection_fd, request);
             break;
         default:
             say(connection_fd, "-ERR unknown command\r\n");

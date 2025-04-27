@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 			exit_with_error("Failed to connect to master");
 		}
 		printf("Initiating handshake with master...\n");
-		initiative_handshake(master_fd);
+		initiative_handshake(master_fd, stats);
 		close(master_fd);
 	}
 
