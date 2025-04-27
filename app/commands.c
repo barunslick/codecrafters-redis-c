@@ -27,6 +27,7 @@ static const CommandInfo COMMANDS[] = {
     {CMD_CONFIG, 3, 3, "CONFIG"},
     {CMD_INFO, 2, 2, "INFO"},
     {CMD_REPLCONF, 3, 3, "REPLCONF"},
+    {CMD_PSYNC, 3, 3, "PSYNC"},
 };
 
 // Command validation and parsing
@@ -171,6 +172,11 @@ void handle_replconf(int connection_fd, RESPData* request) {
     return;
 }
 
+void handle_psync(int connection_fd) {
+    // Just send OK for now
+    say(connection_fd, "+OK\r\n");
+}
+
 // ----------------- Main command processor ----------------------------
 // ---------------------------------------------------------------------
 void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats) {
@@ -214,6 +220,9 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisSt
             break;
         case CMD_REPLCONF:
             handle_replconf(connection_fd, request);
+            break;
+        case CMD_PSYNC:
+            handle_psync(connection_fd);
             break;
         default:
             say(connection_fd, "-ERR unknown command\r\n");

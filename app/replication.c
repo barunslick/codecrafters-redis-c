@@ -83,5 +83,19 @@ void initiative_handshake(int master_fd, RedisStats *stats) {
         sprintf("Unexpected response from master: &s\n", read_buffer);
     }
 
+    // Send PSYNC message to master
+    snprintf(write_buffer, sizeof(write_buffer), "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
+    say(master_fd, write_buffer);
+    if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
+        perror("Failed to read from master");
+        close(master_fd);
+        return;
+    }
+
+    // Check PSYNC response
+    if (strncmp(read_buffer, "+OK", 11) == 0) {
+        printf("Received FULLRESYNC from master\n");
+    }
+
     return;
 }
