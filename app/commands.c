@@ -159,10 +159,10 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
 
 
 void handle_replconf(int connection_fd, RESPData* request) {
-    if (strcmp(request->data.array.elements[2]->data.str, "listening-port") == 0) {
+    if (strcmp(request->data.array.elements[1]->data.str, "listening-port") == 0) {
         // TODO: Handle listening-port later
         say(connection_fd, "+OK\r\n");
-    } else if (strcmp(request->data.array.elements[2]->data.str, "capa") == 0) {
+    } else if (strcmp(request->data.array.elements[1]->data.str, "capa") == 0) {
         // TODO: Handle capa later
         say(connection_fd, "+OK\r\n");
     } else {
