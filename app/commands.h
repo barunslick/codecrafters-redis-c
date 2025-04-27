@@ -39,6 +39,6 @@ void handle_config(int connection_fd, RESPData* request, RedisStats* stats);
 void handle_keys(int connection_fd, RESPData* request, ht_table* ht);
 void handle_info(int connection_fd, RESPData* request, RedisStats* stats);
 void handle_replconf(int connection_fd, RESPData* request);
-void handle_psync(int connection_fd);
+void handle_psync(int connection_fd, RESPData* request, RedisStats* stats);
 
 #endif // COMMANDS_H

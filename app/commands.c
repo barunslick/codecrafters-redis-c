@@ -172,9 +172,25 @@ void handle_replconf(int connection_fd, RESPData* request) {
     return;
 }
 
-void handle_psync(int connection_fd) {
+void handle_psync(int connection_fd, RESPData* request, RedisStats* stats) {
+
+    // Check if it is slave
+    if (strcmp(stats->replication.role, "slave") == 0) {
+        say(connection_fd, "-ERR PSYNC not supported in slave mode\r\n");
+        return;
+    }
+
+    // Create a buffer to hold the response
+    char buffer[1024];
+
+    sprintf(buffer, "FULLRESYNC %s 0\r\n", stats->replication.master_replid);
+
+    // Send the response to the client
+    char* resp = convert_to_resp_string(buffer);
     // Just send OK for now
-    say(connection_fd, "+OK\r\n");
+    say(connection_fd, resp);
+
+    return;
 }
 
 // ----------------- Main command processor ----------------------------
@@ -222,7 +238,7 @@ void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisSt
             handle_replconf(connection_fd, request);
             break;
         case CMD_PSYNC:
-            handle_psync(connection_fd);
+            handle_psync(connection_fd, request, stats);
             break;
         default:
             say(connection_fd, "-ERR unknown command\r\n");
