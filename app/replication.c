@@ -3,12 +3,13 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdlib.h>
 
 #include "helper.h"
 #include "state.h"
 
 int connect_to_master(uint32_t host, uint16_t port) {
-
     printf("Connecting to master at %d:%d\n", host, port);
 
     int sockfd = create_server_socket();
@@ -98,4 +99,17 @@ void initiative_handshake(int master_fd, RedisStats *stats) {
     }
 
     return;
+}
+
+void send_rdb_file_to_slave(int connection_id, RedisStats *stats) {
+    // Send the RDB file to the slave
+    char empty_rdb[] = {
+        0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x30, 0x37, 0xFF
+    };
+    size_t rdb_size = sizeof(empty_rdb);
+    // Send the RESP formatted RDB file
+    char resp_header[64];
+    snprintf(resp_header, sizeof(resp_header), "$%zu\r\n", rdb_size);
+    say(connection_id, resp_header);
+    say_with_size(connection_id, empty_rdb, sizeof(empty_rdb));
 }

@@ -80,6 +80,11 @@ void say(int socket, char * msg) {
 		exit_with_error("Send failed");
 }
 
+void say_with_size(int socket, void * msg, size_t size) {
+	if (send(socket, msg, size, 0) == -1)
+		exit_with_error("Send failed");
+}
+
 int read_in(int socket, char *buf, int len) {
 	char *s = buf;         // Pointer to the current position in the buffer
 	int remaining = len;   // Remaining space in the buffer
@@ -133,4 +138,35 @@ uint32_t resolve_host(const char *hostname) {
 	}
 
 	return inet_addr(hostname); // Convert hostname to IP address
+}
+
+ssize_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size) {
+	// Currently, this function has no indication of whether the file exceeds the buffer size.
+	// Fix it later.
+	ssize_t bytes_read = 0;
+	ssize_t total_bytes_read = 0;
+
+	if (fd < 0 || buffer == NULL || buffer_size == 0) {
+		return -1; // Invalid fd, buffer or size
+	}
+
+	while ((bytes_read = read(fd, buffer + total_bytes_read, buffer_size - total_bytes_read)) > 0) {
+		total_bytes_read += bytes_read;
+		if (total_bytes_read >= buffer_size) {
+			break; // Buffer is full
+		}
+	}
+
+	if (total_bytes_read < 0) {
+		return -1;
+	}
+
+	// Ensure null termination
+	if (total_bytes_read < buffer_size) {
+		buffer[total_bytes_read] = '\0';
+	} else {
+		buffer[buffer_size - 1] = '\0'; // Will overwrite the last byte.
+	}
+
+	return total_bytes_read;
 }

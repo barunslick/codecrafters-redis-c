@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 
 #include "commands.h"
+#include "replication.h"
 
 // Command specification with max and min arguments
 typedef struct {
@@ -26,7 +27,7 @@ static const CommandInfo COMMANDS[] = {
     {CMD_KEYS, 2, 2, "KEYS"},
     {CMD_CONFIG, 3, 3, "CONFIG"},
     {CMD_INFO, 2, 2, "INFO"},
-    {CMD_REPLCONF, 3, 3, "REPLCONF"},
+    {CMD_REPLCONF, 3, 10, "REPLCONF"},
     {CMD_PSYNC, 3, 3, "PSYNC"},
 };
 
@@ -187,8 +188,10 @@ void handle_psync(int connection_fd, RESPData* request, RedisStats* stats) {
 
     // Send the response to the client
     char* resp = convert_to_resp_string(buffer);
-    // Just send OK for now
     say(connection_fd, resp);
+    free(resp);
+
+    send_rdb_file_to_slave(connection_fd, stats);
 
     return;
 }
