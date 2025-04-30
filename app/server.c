@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
 	ht_table *ht = ht_create();
 
 	// Load the RDB file into the hash table
-	if (stats->others.rdb_filename[0] != '\0' && stats->others.rdb_dir[0] != '\0') {
+	if (strcmp(stats->replication.role, "slave") != 0 && stats->others.rdb_filename[0] != '\0' && stats->others.rdb_dir[0] != '\0') {
 		char *rdb_path = malloc(strlen(stats->others.rdb_dir) + strlen(stats->others.rdb_filename) + 2);
 		sprintf(rdb_path, "%s/%s", stats->others.rdb_dir, stats->others.rdb_filename);
 		printf("Loading RDB file from path: %s\n", rdb_path);
