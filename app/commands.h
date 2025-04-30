@@ -13,20 +13,6 @@ typedef struct {
     uint16_t port;
 } RedisConfig;
 
-// Command type enum
-typedef enum {
-    CMD_PING,
-    CMD_ECHO,
-    CMD_SET,
-    CMD_GET,
-    CMD_DEL,
-    CMD_CONFIG,
-    CMD_KEYS,
-    CMD_INFO,
-    CMD_UNKNOWN,
-    CMD_REPLCONF,
-    CMD_PSYNC,
-} CommandType;
 
 // Command functions
 void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats);

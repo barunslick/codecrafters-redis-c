@@ -9,26 +9,42 @@
 #include "commands.h"
 #include "replication.h"
 
+// Command type enum
+typedef enum {
+    CMD_PING,
+    CMD_ECHO,
+    CMD_SET,
+    CMD_GET,
+    CMD_DEL,
+    CMD_CONFIG,
+    CMD_KEYS,
+    CMD_INFO,
+    CMD_UNKNOWN,
+    CMD_REPLCONF,
+    CMD_PSYNC,
+} CommandType;
+
 // Command specification with max and min arguments
 typedef struct {
     CommandType type;
     int min_args;
     int max_args;
     const char* name;
+    bool should_send_to_slave;
 } CommandInfo;
 
 // Command specification with max and min arguments
 static const CommandInfo COMMANDS[] = {
-    {CMD_PING, 1, 1, "PING"},
-    {CMD_ECHO, 2, 2, "ECHO"},
-    {CMD_SET, 3, 5, "SET"},
-    {CMD_GET, 2, 2, "GET"},
-    {CMD_DEL, 2, 2, "DEL"},
-    {CMD_KEYS, 2, 2, "KEYS"},
-    {CMD_CONFIG, 3, 3, "CONFIG"},
-    {CMD_INFO, 2, 2, "INFO"},
-    {CMD_REPLCONF, 3, 10, "REPLCONF"},
-    {CMD_PSYNC, 3, 3, "PSYNC"},
+    {CMD_PING, 1, 1, "PING", 0},
+    {CMD_ECHO, 2, 2, "ECHO", 0},
+    {CMD_SET, 3, 5, "SET", 1},
+    {CMD_GET, 2, 2, "GET", 0},
+    {CMD_DEL, 2, 2, "DEL", 1},
+    {CMD_KEYS, 2, 2, "KEYS", 0},
+    {CMD_CONFIG, 3, 3, "CONFIG", 0},
+    {CMD_INFO, 2, 2, "INFO", 0},
+    {CMD_REPLCONF, 3, 10, "REPLCONF", 0},
+    {CMD_PSYNC, 3, 3, "PSYNC", 0},
 };
 
 // Command validation and parsing

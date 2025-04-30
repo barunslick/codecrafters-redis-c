@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
 				const char *host = strtok(optarg, " ");
 				const char *port_str = strtok(NULL, " ");
 				if (host != NULL && port_str != NULL) {
-					stats->replication.master_host = INADDR_LOOPBACK;
+					stats->replication.master_host = INADDR_LOOPBACK; // HARDCODED: localhost
 					stats->replication.master_port = (uint16_t)atoi(port_str);
 				} else {
 					exit_with_error("Invalid replicaof argument");
@@ -106,7 +106,6 @@ int main(int argc, char *argv[]) {
 		}
 		printf("Initiating handshake with master...\n");
 		initiative_handshake(master_fd, stats);
-		close(master_fd);
 	}
 
 	while (1) { // Main program loop
@@ -142,6 +141,11 @@ int main(int argc, char *argv[]) {
 	}
 
 	ht_destroy(ht);
+
+
+	if (strcmp(stats->replication.role, "slave") == 0 && stats->replication.master_fd > 0) {
+		close(stats->replication.master_fd);
+	}
 	
 	if (pid) {
 		close(server_fd);

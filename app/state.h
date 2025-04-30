@@ -22,6 +22,7 @@ typedef struct {
         uint16_t master_port;
         char master_replid[64];
         uint64_t master_repl_offset;
+        int master_fd;
     } replication;
 
 
