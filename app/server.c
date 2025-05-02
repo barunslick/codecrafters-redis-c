@@ -106,6 +106,7 @@ int main(int argc, char *argv[]) {
 		}
 		printf("Initiating handshake with master...\n");
 		initiative_handshake(master_fd, stats);
+		close(master_fd);
 	}
 
 	while (1) { // Main program loop
@@ -120,8 +121,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	char buf[MAX_BUFFER_SIZE];
-
-	ht_table *ht = ht_create();
+	ht_table *ht = ht_create(); // :( This isn't shared memory, so connections will now see each other's data
 
 	// Load the RDB file into the hash table
 	if (strcmp(stats->replication.role, "slave") != 0 && stats->others.rdb_filename[0] != '\0' && stats->others.rdb_dir[0] != '\0') {
@@ -142,11 +142,6 @@ int main(int argc, char *argv[]) {
 
 	ht_destroy(ht);
 
-
-	if (strcmp(stats->replication.role, "slave") == 0 && stats->replication.master_fd > 0) {
-		close(stats->replication.master_fd);
-	}
-	
 	if (pid) {
 		close(server_fd);
 	}

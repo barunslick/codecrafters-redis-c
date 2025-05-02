@@ -80,5 +80,11 @@ TODO: Add sections
 ---
 
 
+#### References
+
+- https://beej.us/guide/bgnet/html/
+- https://redis.io/docs/latest/commands/
+
+
 > 🗓️ Last updated: April 30, 2025  
 > 💡 [Challenge link](https://codecrafters.io/challenges/redis)
