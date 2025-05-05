@@ -18,5 +18,6 @@ void say_with_size(int socket, void * msg, size_t size);
 int read_in(int socket, char *buf, int len);
 uint32_t resolve_host(const char *hostname);
 ssize_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size);
+int set_non_blocking(int fd, int block);
 
 #endif // HELPER_H

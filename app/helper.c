@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 
 #include "helper.h"
 
@@ -54,7 +55,7 @@ void error(char * msg){
 // Socket Helper Functions
 
 int create_server_socket() {
-	int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+	int server_fd = socket(PF_INET, SOCK_STREAM, 0);
 	if (server_fd == -1)
 		error("Socket creation failed");
 
@@ -73,6 +74,19 @@ void bind_to_port(int socket, uint32_t host, int port, int reuse) {
 
 	if (bind(socket, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) != 0)
 		exit_with_error("Bind failed");
+}
+
+int set_non_blocking(int fd, int block) {
+	if (fd < 0) {
+		return -1; // Invalid file descriptor
+	}
+
+	int flags = fcntl(fd, F_GETFL, 0);
+	if (flags == -1) {
+		return -1; // Failed to get flags
+	}
+	flags = (block) ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+	return (fcntl(fd, F_SETFL, flags) == 0);
 }
 
 void say(int socket, char * msg) {
