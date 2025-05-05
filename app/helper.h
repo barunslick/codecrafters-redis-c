@@ -19,5 +19,6 @@ int read_in(int socket, char *buf, int len);
 uint32_t resolve_host(const char *hostname);
 ssize_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size);
 int set_non_blocking(int fd, int block);
+void epoll_ctl_add(int epoll_fd, int fd, uint32_t events);
 
 #endif // HELPER_H

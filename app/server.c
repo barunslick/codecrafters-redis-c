@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <getopt.h>
+#include <sys/epoll.h>
 
 #include "hashtable.h"
 #include "helper.h"
@@ -92,9 +93,9 @@ int setup_server_socket(RedisStats* stats) {
 	int server_fd = create_server_socket();
 	int reuse = 1;
 	bind_to_port(server_fd, INADDR_ANY, stats->server.tcp_port, reuse);
-	// if (set_non_blocking(server_fd, 0) < 0) {
-	// 	exit_with_error("Failed to set non-blocking mode");
-	// }
+	if (set_non_blocking(server_fd, 0) < 0) {
+		exit_with_error("Failed to set non-blocking mode");
+	}
 	if (listen(server_fd, 10) != 0) {
 		exit_with_error("Listen failed");
 	}
@@ -112,40 +113,12 @@ void run_server(RedisStats* stats) {
 		free(rdb_path);
 	}
 
-	int connection_fd;
-	int pid;
-	struct sockaddr_in client_addr;
-	int client_addr_len = sizeof(client_addr);
-
 	int server_fd = setup_server_socket(stats);
 	if (server_fd < 0) {
 		exit_with_error("Failed to create server socket");
 	}
 
-	while (1) { // Main program loop
-		connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-		pid = fork();
-		if (!pid) {
-            close(server_fd);
-			break;
-        } else {
-            close(connection_fd);
-        }
-	}
-
-	char buf[MAX_BUFFER_SIZE];
-	while(read_in(connection_fd, buf, sizeof(buf))) {
-		char *parse_buf = buf;
-		RESPData *request = parse_resp_buffer(&parse_buf);
-		process_command(connection_fd, request, ht, stats);
-		free_resp_data(request);
-		free(request);
-	}
-
-	if (pid) {
-		close(server_fd);
-	}
-
+	run_listen_loop(stats, server_fd, ht);
 	ht_destroy(ht);
 };
 
@@ -158,40 +131,73 @@ void run_replica(RedisStats* stats) {
 	initiative_handshake(master_fd, stats);
 	close(master_fd);
 
-	int connection_fd;
-	int pid;
-	struct sockaddr_in client_addr;
-	int client_addr_len = sizeof(client_addr);
 	ht_table *ht = ht_create();
-
 	int server_fd = setup_server_socket(stats);
 	if (server_fd < 0) {
 		exit_with_error("Failed to create server socket");
 	}
 
-	while (1) { // Main program loop
-		connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
-		pid = fork();
-		if (!pid) {
-            close(server_fd);
-			break;
-        } else {
-            close(connection_fd);
-        }
-	}
-
-	char buf[MAX_BUFFER_SIZE];
-	while(read_in(connection_fd, buf, sizeof(buf))) {
-		char *parse_buf = buf;
-		RESPData *request = parse_resp_buffer(&parse_buf);
-		process_command(connection_fd, request, ht, stats);
-		free_resp_data(request);
-		free(request);
-	}
-
-	if (pid) {
-		close(server_fd);
-	}
-
+	run_listen_loop(stats, server_fd, ht);
 	ht_destroy(ht);
 };
+
+void run_listen_loop(RedisStats* stats, int server_fd, ht_table *ht) {
+	int epoll_fd = epoll_create(1);
+
+	if (epoll_fd < 0) {
+		exit_with_error("Failed to create epoll instance");
+	}
+
+	epoll_ctl_add(epoll_fd, server_fd, EPOLLIN | EPOLLET | EPOLLOUT);
+
+	int readable = 0;
+	char buf[MAX_BUFFER_SIZE];
+	const int MAX_EVENTS = 10;
+	struct epoll_event events[MAX_EVENTS];
+	int connection_fd;
+	struct sockaddr_in client_addr;
+	int client_addr_len = sizeof(client_addr);
+
+	while (1)
+	{
+		readable = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+
+		for (int i = 0; i < readable; i++){
+			// For main server connection
+			if (events[i].data.fd == server_fd) {
+				connection_fd = accept(server_fd, (struct sockaddr *) &client_addr, &client_addr_len);
+				if (connection_fd < 0){
+					exit_with_error("Failed to accept connection");
+				}
+				set_non_blocking(connection_fd, 1);
+				epoll_ctl_add(epoll_fd, connection_fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLHUP);
+			} else if (events[i].events & EPOLLIN) {
+				connection_fd = events[i].data.fd;
+				memset(buf, 0, sizeof(buf));
+
+				// This currently makes the assumption that the buffer is large enough to hold the entire message
+				// and all the message can be read in one go.
+				// In a real-world scenario, you would want to handle partial reads and buffer the data accordingly.
+				int bytes_Read = read_in(connection_fd, buf, sizeof(buf)); 
+				if (bytes_Read < 0)
+					continue;
+
+				char *parse_buf = buf;
+				RESPData *request = parse_resp_buffer(&parse_buf);
+				process_command(connection_fd, request, ht, stats);
+				free_resp_data(request);
+				free(request);
+			} else {
+				printf("Unknown event: %d\n", events[i].events);
+			}
+
+			if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
+				// For now, just close the connection
+				epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
+				close(events[i].data.fd);
+				continue;
+			}
+		}
+		
+	}
+}

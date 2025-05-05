@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <sys/epoll.h>
 
 #include "helper.h"
 
@@ -89,6 +90,16 @@ int set_non_blocking(int fd, int block) {
 	return (fcntl(fd, F_SETFL, flags) == 0);
 }
 
+void epoll_ctl_add(int epoll_fd, int fd, uint32_t events) {
+	struct epoll_event ev;
+	ev.events = events;
+	ev.data.fd = fd;
+
+	if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
+		exit_with_error("Epoll control failed");
+	}
+}
+
 void say(int socket, char * msg) {
 	if (send(socket, msg, strlen(msg), 0) == -1)
 		exit_with_error("Send failed");
@@ -124,13 +135,25 @@ int read_in(int socket, char *buf, int len) {
 	}
 
 	if (bytes_read < 0) {
-		// Error occurred during recv
-		exit_with_error("Read failed");
-	} else if (bytes_read == 0) {
-		// Connection closed, return an empty string
-		buf[0] = '\0';
-		return 0;
-	}
+        // Check if this is a non-blocking socket with no data available
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Non-blocking socket with no data available yet
+            // Return what we've read so far (which may be nothing)
+            if (remaining > 0) {
+                *s = '\0';
+            } else if (len > 0) {
+                buf[len - 1] = '\0';
+            }
+            return len - remaining;
+        } else {
+            // Real error occurred during recv
+            exit_with_error("Read failed");
+        }
+    } else if (bytes_read == 0) {
+        // Connection closed, return an empty string
+        buf[0] = '\0';
+        return 0;
+    }
 
 	// Ensure null termination at the end of the received data
 	if (remaining > 0) {
