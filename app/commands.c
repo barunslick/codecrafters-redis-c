@@ -56,6 +56,15 @@ static CommandType get_command_type(const char* cmd_str) {
     return CMD_UNKNOWN;
 }
 
+static CommandInfo get_command_info(const char* cmd_str) {
+    for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
+        if (strcasecmp(cmd_str, COMMANDS[i].name) == 0)
+            return COMMANDS[i];
+    }
+    CommandInfo unknown_cmd = {CMD_UNKNOWN, -1, -1, "UNKNOWN", 0};
+    return unknown_cmd;
+}
+
 static bool validate_command_args(CommandType cmd, size_t arg_count) {
     for (size_t i = 0; i < sizeof(COMMANDS) / sizeof(COMMANDS[0]); i++) {
         if (COMMANDS[i].type == cmd)
@@ -214,52 +223,63 @@ void handle_psync(int connection_fd, RESPData* request, RedisStats* stats) {
 
 // ----------------- Main command processor ----------------------------
 // ---------------------------------------------------------------------
-void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats) {
-    if (request == NULL || request->type != RESP_ARRAY || request->data.array.count == 0) {
+void process_command(int connection_fd, RESPData* parsed_request, char* raw_buffer, ht_table* ht, RedisStats* stats) {
+    if (parsed_request == NULL || parsed_request->type != RESP_ARRAY || parsed_request->data.array.count == 0) {
         say(connection_fd, "-ERR Invalid request\r\n");
         return;
     }
 
-    const char* cmd_str = request->data.array.elements[0]->data.str;
-    CommandType cmd = get_command_type(cmd_str);
+    const char* cmd_str = parsed_request->data.array.elements[0]->data.str;
+    CommandInfo cmd = get_command_info(cmd_str);
+    CommandType cmd_type = cmd.type;
+
+    if (cmd_type == CMD_UNKNOWN) {
+        say(connection_fd, "-ERR unknown command\r\n");
+        return;
+    }
     
-    if (!validate_command_args(cmd, request->data.array.count)) {
+    if (!validate_command_args(cmd_type, parsed_request->data.array.count)) {
         say(connection_fd, "-ERR wrong number of arguments\r\n");
         return;
     }
 
-    switch (cmd) {
+    switch (cmd_type) {
         case CMD_PING:
             handle_ping(connection_fd);
             break;
         case CMD_ECHO:
-            handle_echo(connection_fd, request);
+            handle_echo(connection_fd, parsed_request);
             break;
         case CMD_SET:
-            handle_set(connection_fd, request, ht);
+            // Check if the command should be sent to the slave
+            handle_set(connection_fd, parsed_request, ht);
             break;
         case CMD_GET:
-            handle_get(connection_fd, request, ht);
+            handle_get(connection_fd, parsed_request, ht);
             break;
         case CMD_DEL:
-            handle_del(connection_fd, request, ht);
+            handle_del(connection_fd, parsed_request, ht);
             break;
         case CMD_CONFIG:
-            handle_config(connection_fd, request, stats);
+            handle_config(connection_fd, parsed_request, stats);
             break;
         case CMD_KEYS:
-            handle_keys(connection_fd, request, ht);
+            handle_keys(connection_fd, parsed_request, ht);
             break;
         case CMD_INFO:
-            handle_info(connection_fd, request, stats);
+            handle_info(connection_fd, parsed_request, stats);
             break;
         case CMD_REPLCONF:
-            handle_replconf(connection_fd, request);
+            handle_replconf(connection_fd, parsed_request);
             break;
         case CMD_PSYNC:
-            handle_psync(connection_fd, request, stats);
+            handle_psync(connection_fd, parsed_request, stats);
             break;
         default:
             say(connection_fd, "-ERR unknown command\r\n");
     }
+
+    // if (cmd.should_send_to_slave && strcmp(stats->replication.role, "master") == 0) {
+    //     say(connection_fd, raw_buffer);
+    // }
 }

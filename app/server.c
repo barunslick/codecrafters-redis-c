@@ -21,6 +21,7 @@
 
 void run_server(RedisStats* stats);
 void run_replica(RedisStats* stats);
+void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht);
 
 //----------------------------------------------------------------
 // MAIN FUNCTION
@@ -118,7 +119,7 @@ void run_server(RedisStats* stats) {
 		exit_with_error("Failed to create server socket");
 	}
 
-	run_listen_loop(stats, server_fd, ht);
+	run_main_loop(stats, server_fd, ht);
 	ht_destroy(ht);
 };
 
@@ -137,11 +138,11 @@ void run_replica(RedisStats* stats) {
 		exit_with_error("Failed to create server socket");
 	}
 
-	run_listen_loop(stats, server_fd, ht);
+	run_main_loop(stats, server_fd, ht);
 	ht_destroy(ht);
 };
 
-void run_listen_loop(RedisStats* stats, int server_fd, ht_table *ht) {
+void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht) {
 	int epoll_fd = epoll_create(1);
 
 	if (epoll_fd < 0) {
@@ -182,11 +183,11 @@ void run_listen_loop(RedisStats* stats, int server_fd, ht_table *ht) {
 				if (bytes_Read < 0)
 					continue;
 
-				char *parse_buf = buf;
-				RESPData *request = parse_resp_buffer(&parse_buf);
-				process_command(connection_fd, request, ht, stats);
-				free_resp_data(request);
-				free(request);
+				char *raw_buffer = buf;
+				RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
+				process_command(connection_fd, parsed_buffer, raw_buffer, ht, stats);
+				free_resp_data(parsed_buffer);
+				free(parsed_buffer);
 			} else {
 				printf("Unknown event: %d\n", events[i].events);
 			}

@@ -15,7 +15,7 @@ typedef struct {
 
 
 // Command functions
-void process_command(int connection_fd, RESPData* request, ht_table* ht, RedisStats* stats);
+void process_command(int connection_fd, RESPData* parsed_request, char* raw_buffer, ht_table* ht, RedisStats* stats);
 void handle_ping(int connection_fd);
 void handle_echo(int connection_fd, RESPData* request);
 void handle_set(int connection_fd, RESPData* request, ht_table* ht);
