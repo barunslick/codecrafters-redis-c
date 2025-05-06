@@ -193,7 +193,6 @@ void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht) {
 				process_command(connection_fd, parsed_buffer, buf, ht, stats);
 				free_resp_data(parsed_buffer);
 				free(parsed_buffer);
-				free(buf);
 			} else {
 				printf("Unknown event: %d\n", events[i].events);
 			}

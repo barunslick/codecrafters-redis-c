@@ -287,12 +287,12 @@ void process_command(int connection_fd, RESPData* parsed_request, char* raw_buff
     if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
         int slave_connection_fd;
         Node* current_node;
+    
         current_node = stats->others.connected_slaves->head;
-
-
+        int node_index = 0;
+    
         while(current_node != NULL) {
             slave_connection_fd = *(int*)(current_node->data);
-            printf("Slave connection fd: %d", slave_connection_fd);
             say(slave_connection_fd, raw_buffer);
             current_node = current_node->next;
         }

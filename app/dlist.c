@@ -40,7 +40,7 @@ Llist* add_to_list_tail(Llist* list, void* data) {
     } else {
         new_node->prev = list->tail;
         new_node->next = NULL;
-        list->tail->next = NULL;
+        list->tail->next = new_node;
         list->tail = new_node;
     }
 
