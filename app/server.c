@@ -17,7 +17,8 @@
 #include "resp.h"
 #include "commands.h"
 #include "replication.h"
-#include "dist.h"
+#include "dlist.h"
+#include "state.h"
 
 
 void run_server(RedisStats* stats);
@@ -131,7 +132,6 @@ void run_replica(RedisStats* stats) {
 	}
 	printf("Initiating handshake with master...\n");
 	initiative_handshake(master_fd, stats);
-	close(master_fd);
 
 	ht_table *ht = ht_create();
 	int server_fd = setup_server_socket(stats);
@@ -141,6 +141,7 @@ void run_replica(RedisStats* stats) {
 
 	run_main_loop(stats, server_fd, ht);
 	ht_destroy(ht);
+	close(master_fd);
 };
 
 void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht) {
@@ -172,6 +173,9 @@ void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht) {
 					exit_with_error("Failed to accept connection");
 				}
 				set_non_blocking(connection_fd, 1);
+				// int* value = malloc(sizeof(int));
+				// *value = connection_fd;
+				// add_to_list_head(stats->others.connected_clients, value);
 				epoll_ctl_add(epoll_fd, connection_fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLHUP);
 			} else if (events[i].events & EPOLLIN) {
 				connection_fd = events[i].data.fd;
@@ -186,9 +190,10 @@ void run_main_loop(RedisStats* stats, int server_fd, ht_table *ht) {
 
 				char *raw_buffer = buf;
 				RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-				process_command(connection_fd, parsed_buffer, raw_buffer, ht, stats);
+				process_command(connection_fd, parsed_buffer, buf, ht, stats);
 				free_resp_data(parsed_buffer);
 				free(parsed_buffer);
+				free(buf);
 			} else {
 				printf("Unknown event: %d\n", events[i].events);
 			}

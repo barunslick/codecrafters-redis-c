@@ -3,9 +3,7 @@
 #include <stdlib.h>
 
 #include "helper.h"
-#include "dist.h"
-
-
+#include "dlist.h"
 
 Llist* create_list() {
     Llist* list = (Llist*)malloc(sizeof(Llist));

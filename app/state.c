@@ -4,6 +4,7 @@
 
 #include "helper.h"
 #include "state.h"
+#include "dlist.h"
 
 // Helper function to convert a RedisRole enum to string
 const char* get_role_str(RedisRole role) {
@@ -46,6 +47,9 @@ RedisStats* init_redis_stats() {
     snprintf(stats->replication.master_replid, sizeof(stats->replication.master_replid), "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb");
     stats->replication.master_repl_offset = 0;
     stats->replication.master_fd = -1; // Default value
-    
+
+    stats->others.connected_clients = create_list();
+    stats->others.connected_slaves = create_list(); //Skip this later for slaves
+
     return stats;
 }

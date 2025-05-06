@@ -2,6 +2,7 @@
 #define STATE_H
 
 #include <stdint.h>
+#include "dlist.h"
 
 // Define enum for Redis role
 typedef enum {
@@ -40,6 +41,8 @@ typedef struct {
     struct {
         char rdb_dir[124]; // Maybe exceed
         char rdb_filename[124]; // Maybe exceed
+        Llist* connected_clients;
+        Llist* connected_slaves;
     } others;
     
 } RedisStats;

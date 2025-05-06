@@ -8,6 +8,7 @@
 
 #include "commands.h"
 #include "replication.h"
+#include "dlist.h"
 
 // Command type enum
 typedef enum {
@@ -215,6 +216,13 @@ void handle_psync(int connection_fd, RESPData* request, RedisStats* stats) {
 
     send_rdb_file_to_slave(connection_fd, stats);
 
+    // Set the slave as ready to read. Probably need to remove from here later.
+	int* value = malloc(sizeof(int));
+	*value = connection_fd;
+    if (add_to_list_tail(stats->others.connected_slaves, value) == NULL) {
+        exit_with_error("Internal Error");
+    }
+
     return;
 }
 
@@ -276,7 +284,17 @@ void process_command(int connection_fd, RESPData* parsed_request, char* raw_buff
             say(connection_fd, "-ERR unknown command\r\n");
     }
 
-    // if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
-    //     say(connection_fd, raw_buffer);
-    // }
+    if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
+        int slave_connection_fd;
+        Node* current_node;
+        current_node = stats->others.connected_slaves->head;
+
+
+        while(current_node != NULL) {
+            slave_connection_fd = *(int*)(current_node->data);
+            printf("Slave connection fd: %d", slave_connection_fd);
+            say(slave_connection_fd, raw_buffer);
+            current_node = current_node->next;
+        }
+    }
 }
