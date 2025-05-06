@@ -1,4 +1,13 @@
+#ifndef STATE_H
+#define STATE_H
+
 #include <stdint.h>
+
+// Define enum for Redis role
+typedef enum {
+    ROLE_MASTER = 0,
+    ROLE_SLAVE = 1
+} RedisRole;
 
 typedef struct {
     // Server section
@@ -17,7 +26,8 @@ typedef struct {
     } clients;
 
     struct {
-        char role[8];
+        RedisRole role;  // Using enum instead of string
+        char role_str[8]; // Keep string version for INFO command output
         uint32_t master_host;
         uint16_t master_port;
         char master_replid[64];
@@ -35,3 +45,6 @@ typedef struct {
 } RedisStats;
 
 RedisStats* init_redis_stats();
+const char* get_role_str(RedisRole role);
+
+#endif /* STATE_H */

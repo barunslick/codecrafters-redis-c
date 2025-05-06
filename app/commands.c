@@ -160,8 +160,6 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
 
     if (strcmp(info_type, "replication") == 0) {
         // Add # Replication heading
-        // USe stats->replication.role
-        // Add role
         size_t buffer_size = 1024;
         size_t cursor = 0;
         char* buffer = malloc(buffer_size);
@@ -170,7 +168,7 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats) {
         }
 
         cursor += snprintf(buffer + cursor, buffer_size - cursor, "# Replication\r\n");
-        cursor += snprintf(buffer + cursor, buffer_size - cursor, "role:%s\r\n", stats->replication.role);
+        cursor += snprintf(buffer + cursor, buffer_size - cursor, "role:%s\r\n", stats->replication.role_str);
         cursor += snprintf(buffer + cursor, buffer_size - cursor, "master_replid:%s\r\n", stats->replication.master_replid);
         cursor += snprintf(buffer + cursor, buffer_size - cursor, "master_repl_offset:%lu\r\n", stats->replication.master_repl_offset);
 
@@ -199,9 +197,8 @@ void handle_replconf(int connection_fd, RESPData* request) {
 }
 
 void handle_psync(int connection_fd, RESPData* request, RedisStats* stats) {
-
     // Check if it is slave
-    if (strcmp(stats->replication.role, "slave") == 0) {
+    if (stats->replication.role == ROLE_SLAVE) {
         say(connection_fd, "-ERR PSYNC not supported in slave mode\r\n");
         return;
     }
@@ -279,7 +276,7 @@ void process_command(int connection_fd, RESPData* parsed_request, char* raw_buff
             say(connection_fd, "-ERR unknown command\r\n");
     }
 
-    // if (cmd.should_send_to_slave && strcmp(stats->replication.role, "master") == 0) {
+    // if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
     //     say(connection_fd, raw_buffer);
     // }
 }

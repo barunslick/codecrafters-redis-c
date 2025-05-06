@@ -1,12 +1,24 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "helper.h"
 #include "state.h"
 
+// Helper function to convert a RedisRole enum to string
+const char* get_role_str(RedisRole role) {
+    switch (role) {
+        case ROLE_MASTER:
+            return "master";
+        case ROLE_SLAVE:
+            return "slave";
+        default:
+            return "unknown";
+    }
+}
+
 // Initializer function
 RedisStats* init_redis_stats() {
-
     RedisStats* stats = malloc(sizeof(RedisStats));
     if (!stats) return NULL;
     
@@ -20,9 +32,9 @@ RedisStats* init_redis_stats() {
     stats->clients.blocked_clients = 0;
     stats->clients.maxclients = 10000; // Default value
 
-
     // Initialize replication section
-    snprintf(stats->replication.role, sizeof(stats->replication.role), "master");
+    stats->replication.role = ROLE_MASTER;
+    strncpy(stats->replication.role_str, "master", sizeof(stats->replication.role_str));
     stats->replication.master_host = 0; // Default value
     stats->replication.master_port = DEFAULT_REDIS_PORT; // Default value
 

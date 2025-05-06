@@ -17,6 +17,7 @@
 #include "resp.h"
 #include "commands.h"
 #include "replication.h"
+#include "dist.h"
 
 
 void run_server(RedisStats* stats);
@@ -64,8 +65,8 @@ int main(int argc, char *argv[]) {
 			}
 			case 'r': {
 				// Handle replicaof option
-				// For now, just print the value
-				snprintf(stats->replication.role, sizeof(stats->replication.role), "slave");
+				stats->replication.role = ROLE_SLAVE;
+				strncpy(stats->replication.role_str, "slave", sizeof(stats->replication.role_str));
 				const char *host = strtok(optarg, " ");
 				const char *port_str = strtok(NULL, " ");
 				if (host != NULL && port_str != NULL) {
@@ -81,7 +82,7 @@ int main(int argc, char *argv[]) {
 	    }
 	}
 
-	if (strcmp(stats->replication.role, "slave") == 0) {
+	if (stats->replication.role == ROLE_SLAVE) {
 		run_replica(stats);
 	} else {
 		run_server(stats);
