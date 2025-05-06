@@ -8,69 +8,69 @@ The challenge is structured in stages — from handling basic commands to implem
 
 #### ✅ Base Stages
 
-- [x] Introduction  
-- [x] Repository Setup  
-- [x] Bind to a port  
-- [x] Respond to PING  
-- [x] Respond to multiple PINGs  
-- [x] Handle concurrent clients  
-- [x] Implement the ECHO command  
-- [x] Implement the SET & GET commands  
-- [x] Expiry  
-- [x] Base stages complete!  
+- [x] Introduction
+- [x] Repository Setup
+- [x] Bind to a port
+- [x] Respond to PING
+- [x] Respond to multiple PINGs
+- [x] Handle concurrent clients
+- [x] Implement the ECHO command
+- [x] Implement the SET & GET commands
+- [x] Expiry
+- [x] Base stages complete!
 
 ---
 
 #### 💾 RDB Persistence
 
-- [x] RDB file config  
-- [x] Read a key  
-- [x] Read a string value  
-- [x] Read multiple keys  
-- [x] Read multiple string values  
-- [x] Read value with expiry  
-- [x] Extension complete!  
+- [x] RDB file config
+- [x] Read a key
+- [x] Read a string value
+- [x] Read multiple keys
+- [x] Read multiple string values
+- [x] Read value with expiry
+- [x] Extension complete!
 
 ---
 
 #### 🔁 Replication
 
-- [x] Configure listening port  
-- [x] The INFO command  
-- [x] The INFO command on a replica  
-- [x] Initial Replication ID and offset  
-- [x] Send handshake (1/3)  
-- [x] Send handshake (2/3)  
-- [x] Send handshake (3/3)  
-- [x] Receive handshake (1/2)  
-- [x] Receive handshake (2/2)  
-- [x] Empty RDB Transfer  
-- [x] Single-replica propagation  
-- [x] Multi Replica Command Propagation  
-- [ ] Command Processing  
-- [ ] ACKs with no commands  
-- [ ] ACKs with commands  
-- [ ] WAIT with no replicas  
-- [ ] WAIT with no commands  
-- [ ] WAIT with multiple commands  
+- [x] Configure listening port
+- [x] The INFO command
+- [x] The INFO command on a replica
+- [x] Initial Replication ID and offset
+- [x] Send handshake (1/3)
+- [x] Send handshake (2/3)
+- [x] Send handshake (3/3)
+- [x] Receive handshake (1/2)
+- [x] Receive handshake (2/2)
+- [x] Empty RDB Transfer
+- [x] Single-replica propagation
+- [x] Multi Replica Command Propagation
+- [ ] Command Processing
+- [ ] ACKs with no commands
+- [ ] ACKs with commands
+- [ ] WAIT with no replicas
+- [ ] WAIT with no commands
+- [ ] WAIT with multiple commands
 
 ---
 
 #### 📚 Streams
 
-- [ ] The TYPE command  
-- [ ] Create a stream  
-- [ ] Validating entry IDs  
-- [ ] Partially auto-generated IDs  
-- [ ] Fully auto-generated IDs  
-- [ ] Query entries from stream  
-- [ ] Query with `-`  
-- [ ] Query with `+`  
-- [ ] Query single stream using ID range  
-- [ ] Query multiple streams using ID range  
-- [ ] Blocking reads  
-- [ ] Blocking reads without timeout  
-- [ ] Blocking reads using `$`  
+- [ ] The TYPE command
+- [ ] Create a stream
+- [ ] Validating entry IDs
+- [ ] Partially auto-generated IDs
+- [ ] Fully auto-generated IDs
+- [ ] Query entries from stream
+- [ ] Query with `-`
+- [ ] Query with `+`
+- [ ] Query single stream using ID range
+- [ ] Query multiple streams using ID range
+- [ ] Blocking reads
+- [ ] Blocking reads without timeout
+- [ ] Blocking reads using `$`
 
 ---
 
@@ -84,7 +84,9 @@ TODO: Add sections
 
 - https://beej.us/guide/bgnet/html/
 - https://redis.io/docs/latest/commands/
+- https://copyconstruct.medium.com/the-method-to-epolls-madness-d9d2d6378642
 
 
-> 🗓️ Last updated: April 30, 2025  
+
+> 🗓️ Last updated: April 30, 2025
 > 💡 [Challenge link](https://codecrafters.io/challenges/redis)

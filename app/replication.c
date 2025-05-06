@@ -84,79 +84,124 @@ void initiative_handshake(int master_fd, RedisStats *stats) {
   char read_buffer[1024];
   char write_buffer[1024];
 
+  // Step 1: Send PING to check connection
+  printf("Sending PING to master...\n");
   say(master_fd, "*1\r\n$4\r\nPING\r\n");
 
-  if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
-    perror("Failed to read from master");
-    close(master_fd);
-    return;
-  }
-
-  // Check PONG response
-  if (strncmp(read_buffer, "+PONG\r\n", 7) == 0) {
+  // Non-blocking read to get PONG response
+  memset(read_buffer, 0, sizeof(read_buffer));
+  int bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for PING, continuing...\n");
+  } else if (strncmp(read_buffer, "+PONG\r\n", 7) == 0) {
     printf("Received PONG from master\n");
   } else {
-    sprintf("Unexpected response from master: &s\n", read_buffer);
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
 
-  // Send REPLCONF message to master with port
+  // Step 2: Send REPLCONF listening-port
+  printf("Sending REPLCONF listening-port...\n");
   snprintf(write_buffer, sizeof(write_buffer),
            "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%d\r\n",
            stats->server.tcp_port);
-
   say(master_fd, write_buffer);
 
-  if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
-    perror("Failed to read from master");
-    close(master_fd);
-    return;
-  }
-
-  // Check OK response
-  if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
-    printf("Received OK from master\n");
+  // Non-blocking read for response
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for REPLCONF listening-port, continuing...\n");
+  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+    printf("Received OK from master for listening-port\n");
   } else {
-    sprintf("Unexpected response from master: &s\n", read_buffer);
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
 
-  // Send REPLCONF message to master with capa
+  // Step 3: Send REPLCONF capa psync2
+  printf("Sending REPLCONF capa psync2...\n");
   snprintf(write_buffer, sizeof(write_buffer),
            "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n");
   say(master_fd, write_buffer);
 
-  if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
-    perror("Failed to read from master");
-    close(master_fd);
-    return;
-  }
-  // Check OK response
-  if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
-    printf("Received OK from master\n");
+  // Non-blocking read for response
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for REPLCONF capa, continuing...\n");
+  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+    printf("Received OK from master for capa\n");
   } else {
-    sprintf("Unexpected response from master: &s\n", read_buffer);
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
 
-  // Send PSYNC message to master
+  // Step 4: Send PSYNC
+  printf("Sending PSYNC command...\n");
   snprintf(write_buffer, sizeof(write_buffer),
            "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
   say(master_fd, write_buffer);
-  if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
-    perror("Failed to read from master");
-    close(master_fd);
-    return;
+  
+  // Non-blocking read for FULLRESYNC response
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for PSYNC, continuing...\n");
+  } else if (strncmp(read_buffer, "+FULLRESYNC", 11) == 0) {
+    printf("Received FULLRESYNC from master: %s\n", read_buffer);
+  } else {
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
 
-  // Check PSYNC response
-  if (strncmp(read_buffer, "+OK", 11) == 0) {
-    printf("Received FULLRESYNC from master\n");
-  }
-
-  // Just skip the RDB file
-  if (read_in(master_fd, read_buffer, sizeof(read_buffer)) < 0) {
-    perror("Failed to read RDB file");
-    close(master_fd);
-    return;
-  }
-
+  // Don't attempt to read the RDB file here
+  // It will be handled by the event loop in run_replica_main_loop
+  printf("Handshake initiated. Waiting for RDB file from master...\n");
+  
   return;
+}
+
+void handle_handshake_step(RedisStats *stats) {
+  char write_buffer[1024];
+  int master_fd = stats->replication.master_fd;
+  
+  switch(stats->replication.handshake_state) {
+    case HANDSHAKE_NOT_STARTED:
+      printf("Starting handshake with master: sending PING...\n");
+      say(master_fd, "*1\r\n$4\r\nPING\r\n");
+      stats->replication.handshake_state = HANDSHAKE_PING_SENT;
+      break;
+      
+    case HANDSHAKE_PING_SENT:
+      printf("Handshake step 2: sending REPLCONF listening-port...\n");
+      snprintf(write_buffer, sizeof(write_buffer),
+               "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%d\r\n",
+               stats->server.tcp_port);
+      say(master_fd, write_buffer);
+      stats->replication.handshake_state = HANDSHAKE_PORT_SENT;
+      break;
+      
+    case HANDSHAKE_PORT_SENT:
+      printf("Handshake step 3: sending REPLCONF capa psync2...\n");
+      snprintf(write_buffer, sizeof(write_buffer),
+               "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n");
+      say(master_fd, write_buffer);
+      stats->replication.handshake_state = HANDSHAKE_CAPA_SENT;
+      break;
+      
+    case HANDSHAKE_CAPA_SENT:
+      printf("Handshake step 4: sending PSYNC...\n");
+      snprintf(write_buffer, sizeof(write_buffer),
+               "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
+      say(master_fd, write_buffer);
+      stats->replication.handshake_state = HANDSHAKE_PSYNC_SENT;
+      break;
+      
+    case HANDSHAKE_PSYNC_SENT:
+    case HANDSHAKE_COMPLETED:
+      // We don't need to do anything here as we're waiting for the master's response
+      // The RDB data will be handled in the run_replica_main_loop
+      break;
+  }
 }
