@@ -78,89 +78,6 @@ void read_rdb_file_from_master(int master_fd) {
   printf("Skipped RDB file (%zu bytes)\n", rdb_size);
 }
 
-void initiative_handshake(int master_fd, RedisStats *stats) {
-  // Send handshake message to master
-  char read_buffer[1024];
-  char write_buffer[1024];
-
-  // Step 1: Send PING to check connection
-  printf("Sending PING to master...\n");
-  say(master_fd, "*1\r\n$4\r\nPING\r\n");
-
-  // Non-blocking read to get PONG response
-  memset(read_buffer, 0, sizeof(read_buffer));
-  int bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
-  
-  if (bytes_read <= 0) {
-    printf("No immediate response from master for PING, continuing...\n");
-  } else if (strncmp(read_buffer, "+PONG\r\n", 7) == 0) {
-    printf("Received PONG from master\n");
-  } else {
-    printf("Unexpected response from master: %s\n", read_buffer);
-  }
-
-  // Step 2: Send REPLCONF listening-port
-  printf("Sending REPLCONF listening-port...\n");
-  snprintf(write_buffer, sizeof(write_buffer),
-           "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%d\r\n",
-           stats->server.tcp_port);
-  say(master_fd, write_buffer);
-
-  // Non-blocking read for response
-  memset(read_buffer, 0, sizeof(read_buffer));
-  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
-  
-  if (bytes_read <= 0) {
-    printf("No immediate response from master for REPLCONF listening-port, continuing...\n");
-  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
-    printf("Received OK from master for listening-port\n");
-  } else {
-    printf("Unexpected response from master: %s\n", read_buffer);
-  }
-
-  // Step 3: Send REPLCONF capa psync2
-  printf("Sending REPLCONF capa psync2...\n");
-  snprintf(write_buffer, sizeof(write_buffer),
-           "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n");
-  say(master_fd, write_buffer);
-
-  // Non-blocking read for response
-  memset(read_buffer, 0, sizeof(read_buffer));
-  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
-  
-  if (bytes_read <= 0) {
-    printf("No immediate response from master for REPLCONF capa, continuing...\n");
-  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
-    printf("Received OK from master for capa\n");
-  } else {
-    printf("Unexpected response from master: %s\n", read_buffer);
-  }
-
-  // Step 4: Send PSYNC
-  printf("Sending PSYNC command...\n");
-  snprintf(write_buffer, sizeof(write_buffer),
-           "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
-  say(master_fd, write_buffer);
-  
-  // Non-blocking read for FULLRESYNC response
-  memset(read_buffer, 0, sizeof(read_buffer));
-  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
-  
-  if (bytes_read <= 0) {
-    printf("No immediate response from master for PSYNC, continuing...\n");
-  } else if (strncmp(read_buffer, "+FULLRESYNC", 11) == 0) {
-    printf("Received FULLRESYNC from master: %s\n", read_buffer);
-  } else {
-    printf("Unexpected response from master: %s\n", read_buffer);
-  }
-
-  // Don't attempt to read the RDB file here
-  // It will be handled by the event loop in run_replica_main_loop
-  printf("Handshake initiated. Waiting for RDB file from master...\n");
-  
-  return;
-}
-
 void handle_handshake_step(RedisStats *stats) {
   char write_buffer[1024];
   int master_fd = stats->replication.master_fd;
@@ -200,32 +117,87 @@ void handle_handshake_step(RedisStats *stats) {
     case HANDSHAKE_PSYNC_SENT:
     case HANDSHAKE_COMPLETED:
       // We don't need to do anything here as we're waiting for the master's response
-      // The RDB data will be handled in the run_replica_main_loop
       break;
   }
 }
 
-void handle_handshake_response(RedisStats *stats, char *buf) {
-  if (stats->replication.handshake_state == HANDSHAKE_PING_SENT && 
-      strncmp(buf, "+PONG\r\n", 7) == 0) {
-    printf("Received PONG from master, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send REPLCONF listening-port
+void initiative_handshake(int master_fd, RedisStats *stats) {
+  // Send handshake message to master
+  char read_buffer[1024];
+  char write_buffer[1024];
+
+  // Step 1: Send PING to check connection
+  printf("Sending PING to master...\n");
+  say(master_fd, "*1\r\n$4\r\nPING\r\n");
+
+  memset(read_buffer, 0, sizeof(read_buffer));
+  int bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for PING, continuing...\n");
+  } else if (strncmp(read_buffer, "+PONG\r\n", 7) == 0) {
+    printf("Received PONG from master\n");
+  } else {
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
-  else if (stats->replication.handshake_state == HANDSHAKE_PORT_SENT && 
-           strncmp(buf, "+OK\r\n", 5) == 0) {
-    printf("Received OK for listening-port, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send REPLCONF capa
+
+  // Step 2: Send REPLCONF listening-port
+  printf("Sending REPLCONF listening-port...\n");
+  snprintf(write_buffer, sizeof(write_buffer),
+           "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%d\r\n",
+           stats->server.tcp_port);
+  say(master_fd, write_buffer);
+
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for REPLCONF listening-port, continuing...\n");
+  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+    printf("Received OK from master for listening-port\n");
+  } else {
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
-  else if (stats->replication.handshake_state == HANDSHAKE_CAPA_SENT && 
-           strncmp(buf, "+OK\r\n", 5) == 0) {
-    printf("Received OK for capa, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send PSYNC
+
+  // Step 3: Send REPLCONF capa psync2
+  printf("Sending REPLCONF capa psync2...\n");
+  snprintf(write_buffer, sizeof(write_buffer),
+           "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n");
+  say(master_fd, write_buffer);
+
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for REPLCONF capa, continuing...\n");
+  } else if (strncmp(read_buffer, "+OK\r\n", 5) == 0) {
+    printf("Received OK from master for capa\n");
+  } else {
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
-  else if (stats->replication.handshake_state == HANDSHAKE_PSYNC_SENT && 
-           strncmp(buf, "+FULLRESYNC", 11) == 0) {
-    printf("Received FULLRESYNC from master, handshake completed\n");
-    stats->replication.handshake_state = HANDSHAKE_COMPLETED;
+
+  // Step 4: Send PSYNC
+  printf("Sending PSYNC command...\n");
+  snprintf(write_buffer, sizeof(write_buffer),
+           "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n");
+  say(master_fd, write_buffer);
+  
+  memset(read_buffer, 0, sizeof(read_buffer));
+  bytes_read = read_in_non_blocking(master_fd, read_buffer, sizeof(read_buffer));
+  
+  if (bytes_read <= 0) {
+    printf("No immediate response from master for PSYNC, continuing...\n");
+  } else if (strncmp(read_buffer, "+FULLRESYNC", 11) == 0) {
+    printf("Received FULLRESYNC from master: %s\n", read_buffer);
+  } else {
+    printf("Unexpected response from master: %s\n", read_buffer);
   }
+
+  // Don't attempt to read the RDB file here
+  // It will be handled by the event loop in run_replica_main_loop
+  printf("Handshake initiated. Waiting for RDB file from master...\n");
+  
+  return;
 }
 
 int process_rdb_data(RedisStats *stats, char *buf, int bytes_read) {
@@ -239,19 +211,115 @@ int process_rdb_data(RedisStats *stats, char *buf, int bytes_read) {
   if (buf[0] == '*') {
     printf("Received first command from master, marking replication as completed\n");
     stats->others.is_replication_completed = 1;
-    return 1; // This is a command, not RDB data
+    return 0; // Return 0 as offset since we start from the beginning
   } 
+  
+  // Handle RDB data starting with '$' (RESP bulk string format)
   else if (stats->replication.handshake_state == HANDSHAKE_COMPLETED && 
           strncmp(buf, "$", 1) == 0) {
-    printf("Received RDB file header, processing as RDB transfer\n");
-    stats->others.is_replication_completed = 1;
+    char *end_ptr = strchr(buf, '\r');
+    if (!end_ptr) {
+      printf("Incomplete RDB header, waiting for more data\n");
+      return -1; 
+    }
+    
+    // Extract the RDB size
+    size_t rdb_size = 0;
+    sscanf(buf + 1, "%zu", &rdb_size);
+    printf("RDB file size: %zu bytes\n", rdb_size);
+    
+    // Skip the header ($<size>\r\n)
+    size_t header_len = (end_ptr - buf) + 2; // +2 for \r\n
+    
+    if (bytes_read >= header_len + rdb_size) { 
+      printf("Complete RDB file received\n");
+      
+      if (bytes_read > header_len + rdb_size) {
+        char *additional_data = buf + header_len + rdb_size;
+        int additional_bytes = bytes_read - (header_len + rdb_size);
+        
+        if (additional_data[0] == '*') {
+          printf("Additional RESP commands received after RDB transfer\n");
+          stats->others.is_replication_completed = 1;
+          
+          return header_len + rdb_size;
+        }
+        else {
+          printf("Warning: Unexpected additional data format after RDB transfer\n");
+          stats->others.is_replication_completed = 1;
+          return header_len + rdb_size;
+        }
+      }
+      
+      stats->others.is_replication_completed = 1;
+      printf("RDB transfer completed\n");
+      return -1;
+    } else {
+      printf("Partial RDB file received (%d of %zu bytes), waiting for more data\n", 
+             bytes_read - header_len, rdb_size);
+      
+      size_t expected_bytes = header_len + rdb_size;
+      if (bytes_read > expected_bytes) {
+        printf("Warning: Received more data than expected during partial RDB transfer\n");
+        printf("Expected: %zu bytes, Received: %d bytes\n", expected_bytes, bytes_read);
+      }
+      
+      return -1;
+    }
   } 
   else {
-    // In a real implementation, we would parse the RDB format
-    // For now, we'll just consider any data as completion of RDB transfer
-    stats->others.is_replication_completed = 1;
-    printf("RDB file transfer marked as completed\n");
+    if (bytes_read >= 9 && 
+        strncmp(buf, "REDIS", 5) == 0) {
+      printf("Found RDB file with REDIS signature\n");
+      stats->others.is_replication_completed = 1;
+    } else {
+      printf("Unknown data format in replication stream, marking transfer as completed\n");
+      printf("Data starts with: ");
+      for (int i = 0; i < (bytes_read > 16 ? 16 : bytes_read); i++) {
+        printf("%02x ", (unsigned char)buf[i]);
+      }
+      printf("\n");
+      stats->others.is_replication_completed = 1;
+    }
+    
+    return -1;
   }
-  
-  return 0; // This was RDB data, not a command
+}
+
+int handle_handshake_response(RedisStats *stats, char *buf, int bytes_read) {
+  if (stats->replication.handshake_state == HANDSHAKE_PING_SENT && 
+      strncmp(buf, "+PONG\r\n", 7) == 0) {
+    printf("Received PONG from master, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send REPLCONF listening-port
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_PORT_SENT && 
+           strncmp(buf, "+OK\r\n", 5) == 0) {
+    printf("Received OK for listening-port, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send REPLCONF capa
+    
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_CAPA_SENT && 
+           strncmp(buf, "+OK\r\n", 5) == 0) {
+    printf("Received OK for capa, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send PSYNC
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_PSYNC_SENT && 
+           strncmp(buf, "+FULLRESYNC", 11) == 0) {
+    printf("Received FULLRESYNC from master, handshake completed\n");
+    stats->replication.handshake_state = HANDSHAKE_COMPLETED;
+    
+    // Check for additional data after FULLRESYNC response
+    char *fullresync_end = strstr(buf, "\r\n");
+    if (fullresync_end) {
+      int fullresync_len = (fullresync_end - buf) + 2;
+      
+      if (bytes_read > fullresync_len) {
+        printf("Additional data received with FULLRESYNC (%d bytes)\n", 
+               bytes_read - fullresync_len);
+
+        return fullresync_len;
+      }
+    }
+  }
+  return -1;
 }

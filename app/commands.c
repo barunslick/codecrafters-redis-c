@@ -32,20 +32,21 @@ typedef struct {
   int max_args;
   const char *name;
   bool should_send_to_slave;
+  bool should_respond_to_master;
 } CommandInfo;
 
 // Command specification with max and min arguments
 static const CommandInfo COMMANDS[] = {
-    {CMD_PING, 1, 1, "PING", 0},
-    {CMD_ECHO, 2, 2, "ECHO", 0},
-    {CMD_SET, 3, 5, "SET", 1},
-    {CMD_GET, 2, 2, "GET", 0},
-    {CMD_DEL, 2, 2, "DEL", 1},
-    {CMD_KEYS, 2, 2, "KEYS", 0},
-    {CMD_CONFIG, 3, 3, "CONFIG", 0},
-    {CMD_INFO, 2, 2, "INFO", 0},
-    {CMD_REPLCONF, 3, 10, "REPLCONF", 0},
-    {CMD_PSYNC, 3, 3, "PSYNC", 0},
+    {CMD_PING, 1, 1, "PING", 0, 0},
+    {CMD_ECHO, 2, 2, "ECHO", 0, 0},
+    {CMD_SET, 3, 5, "SET", 1, 0},
+    {CMD_GET, 2, 2, "GET", 0, 0},
+    {CMD_DEL, 2, 2, "DEL", 1, 0},
+    {CMD_KEYS, 2, 2, "KEYS", 0, 0},
+    {CMD_CONFIG, 3, 3, "CONFIG", 0, 0},
+    {CMD_INFO, 2, 2, "INFO", 0, 1},
+    {CMD_REPLCONF, 3, 10, "REPLCONF", 0, 1},
+    {CMD_PSYNC, 3, 3, "PSYNC", 0, 0},
 };
 
 // Command validation and parsing
@@ -77,15 +78,15 @@ static bool validate_command_args(CommandType cmd, size_t arg_count) {
 }
 
 // Command handlers
-void handle_ping(int connection_fd) { say(connection_fd, "+PONG\r\n"); }
-
-void handle_echo(int connection_fd, RESPData *request) {
-  char output[1024];
-  sprintf(output, "+%s\r\n", request->data.array.elements[1]->data.str);
-  say(connection_fd, output);
+size_t handle_ping(char* write_buf, size_t buf_size) { 
+  return snprintf(write_buf, buf_size, "+PONG\r\n");
 }
 
-void handle_set(int connection_fd, RESPData *request, ht_table *ht) {
+size_t handle_echo(char* write_buf, size_t buf_size, RESPData *request) {
+  return snprintf(write_buf, buf_size, "+%s\r\n", request->data.array.elements[1]->data.str);
+}
+
+size_t handle_set(char* write_buf, size_t buf_size, RESPData *request, ht_table *ht) {
   const char *key = request->data.array.elements[1]->data.str;
   void *value = request->data.array.elements[2]->data.str;
 
@@ -96,115 +97,122 @@ void handle_set(int connection_fd, RESPData *request, ht_table *ht) {
         (uint64_t)strtol(request->data.array.elements[4]->data.str, NULL, 10);
 
   if (ht_set_with_relative_expiry(ht, key, value, expiry) == NULL) {
-    say(connection_fd, "-ERR failed to set key\r\n");
-    return;
+    return snprintf(write_buf, buf_size, "-ERR failed to set key\r\n");
   }
 
-  say(connection_fd, "+OK\r\n");
+  return snprintf(write_buf, buf_size, "+OK\r\n");
 }
 
-void handle_get(int connection_fd, RESPData *request, ht_table *ht) {
+size_t handle_get(char* write_buf, size_t buf_size, RESPData *request, ht_table *ht) {
   const char *key = request->data.array.elements[1]->data.str;
   char *value = ht_get(ht, key);
 
   if (value == NULL) {
-    say(connection_fd, "$-1\r\n");
+    return snprintf(write_buf, buf_size, "$-1\r\n");
   } else {
-    char output[1024];
-    sprintf(output, "$%ld\r\n%s\r\n", strlen(value), value);
-    say(connection_fd, output);
+    return snprintf(write_buf, buf_size, "$%ld\r\n%s\r\n", strlen(value), value);
   }
 }
 
-void handle_del(int connection_fd, RESPData *request, ht_table *ht) {
+size_t handle_del(char* write_buf, size_t buf_size, RESPData *request, ht_table *ht) {
   ht_del(ht, request->data.array.elements[1]->data.str);
-  say(connection_fd, ":1\r\n");
+  return snprintf(write_buf, buf_size, ":1\r\n");
 }
 
-void handle_config(int connection_fd, RESPData *request, RedisStats *stats) {
+size_t handle_config(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
   if (request->data.array.count < 2) {
-    say(connection_fd, "-ERR CONFIG requires at least one argument\r\n");
-    return;
+    return snprintf(write_buf, buf_size, "-ERR CONFIG requires at least one argument\r\n");
   }
 
   if (strcmp(request->data.array.elements[1]->data.str, "GET") == 0) {
     if (strcmp(request->data.array.elements[2]->data.str, "dir") == 0) {
-      const char *values[] = {"dir", stats->others.rdb_dir};
-      char *resp = convert_to_resp_array(2, values);
-      say(connection_fd, resp);
-      free(resp);
-    } else if (strcmp(request->data.array.elements[2]->data.str,
-                      "dbfilename") == 0) {
-      const char *values[] = {"dbfilename", stats->others.rdb_filename};
-      char *resp = convert_to_resp_array(2, values);
-      say(connection_fd, resp);
-      free(resp);
+      return snprintf(write_buf, buf_size, "*2\r\n$3\r\ndir\r\n$%zu\r\n%s\r\n", 
+                     strlen(stats->others.rdb_dir), stats->others.rdb_dir);
+    } else if (strcmp(request->data.array.elements[2]->data.str, "dbfilename") == 0) {
+      return snprintf(write_buf, buf_size, "*2\r\n$10\r\ndbfilename\r\n$%zu\r\n%s\r\n", 
+                     strlen(stats->others.rdb_filename), stats->others.rdb_filename);
     } else {
-      say(connection_fd, "-ERR Unknown CONFIG parameter\r\n");
+      return snprintf(write_buf, buf_size, "-ERR Unknown CONFIG parameter\r\n");
     }
   } else {
-    say(connection_fd, "-ERR Unknown CONFIG command\r\n");
+    return snprintf(write_buf, buf_size, "-ERR Unknown CONFIG command\r\n");
   }
 }
 
-void handle_keys(int connection_fd, RESPData *request, ht_table *ht) {
+size_t handle_keys(char* write_buf, size_t buf_size, RESPData *request, ht_table *ht) {
   const char *pattern = request->data.array.elements[1]->data.str;
   // For now, return all keys without pattern matching
   size_t count = 0;
   const char **keys = ht_get_keys(ht, &count);
-  char *keys_resp = convert_to_resp_array(count, keys);
-  say(connection_fd, keys_resp);
-  free(keys_resp);
+  
+  // Write array header
+  size_t cursor = snprintf(write_buf, buf_size, "*%zu\r\n", count);
+  
+  // Write each key as a bulk string
+  for (size_t i = 0; i < count && cursor < buf_size; i++) {
+    cursor += snprintf(write_buf + cursor, buf_size - cursor, "$%zu\r\n%s\r\n", 
+                      strlen(keys[i]), keys[i]);
+  }
+  
   free(keys);
+  return cursor;
 }
 
-void handle_info(int connection_fd, RESPData *request, RedisStats *stats) {
+size_t handle_info(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
   const char *info_type = request->data.array.elements[1]->data.str;
 
   if (strcmp(info_type, "replication") == 0) {
-    // Add # Replication heading
-    size_t buffer_size = 1024;
-    size_t cursor = 0;
-    char *buffer = malloc(buffer_size);
-    if (buffer == NULL) {
-      exit_with_error("Memory allocation failed");
-    }
+    // Create a temporary buffer for the info content
+    char info_content[512];
+    size_t info_len = 0;
+    
+    info_len += snprintf(info_content + info_len, sizeof(info_content) - info_len, 
+                         "# Replication\r\n");
+    info_len += snprintf(info_content + info_len, sizeof(info_content) - info_len, 
+                         "role:%s\r\n", stats->replication.role_str);
+    info_len += snprintf(info_content + info_len, sizeof(info_content) - info_len, 
+                         "master_replid:%s\r\n", stats->replication.master_replid);
+    info_len += snprintf(info_content + info_len, sizeof(info_content) - info_len,
+                         "master_repl_offset:%lu\r\n", stats->replication.master_repl_offset);
 
-    cursor +=
-        snprintf(buffer + cursor, buffer_size - cursor, "# Replication\r\n");
-    cursor += snprintf(buffer + cursor, buffer_size - cursor, "role:%s\r\n",
-                       stats->replication.role_str);
-    cursor +=
-        snprintf(buffer + cursor, buffer_size - cursor, "master_replid:%s\r\n",
-                 stats->replication.master_replid);
-    cursor += snprintf(buffer + cursor, buffer_size - cursor,
-                       "master_repl_offset:%lu\r\n",
-                       stats->replication.master_repl_offset);
-
-    char *resp = convert_to_resp_string(buffer);
-    say(connection_fd, resp);
-    free(buffer);
-    free(resp);
+    // Format as RESP bulk string
+    return snprintf(write_buf, buf_size, "$%zu\r\n%s\r\n", info_len, info_content);
   } else {
-    say(connection_fd, "-ERR Unknown INFO type\r\n");
+    return snprintf(write_buf, buf_size, "-ERR Unknown INFO type\r\n");
   }
 }
 
-void handle_replconf(int connection_fd, RESPData *request) {
-  if (strcmp(request->data.array.elements[1]->data.str, "listening-port") ==
-      0) {
+size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
+  if (strcmp(request->data.array.elements[1]->data.str, "listening-port") == 0) {
     // TODO: Handle listening-port later
-    say(connection_fd, "+OK\r\n");
+    return snprintf(write_buf, buf_size, "+OK\r\n");
   } else if (strcmp(request->data.array.elements[1]->data.str, "capa") == 0) {
     // TODO: Handle capa later
-    say(connection_fd, "+OK\r\n");
+    return snprintf(write_buf, buf_size, "+OK\r\n");
   } else if (strcmp(request->data.array.elements[1]->data.str, "GETACK") == 0) {
-    say(connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n");
-  } else {
-    say(connection_fd, "-ERR Unknown REPLCONF command\r\n");
-  }
+    if (strcmp(request->data.array.elements[2]->data.str, "*") == 0) {
+      // Create a string array with REPLCONF ACK and the bytes read
+      char bytes_read_str[20]; // Buffer to hold the string representation
+      snprintf(bytes_read_str, sizeof(bytes_read_str), "%zu", stats->replication.bytes_read->bytes_read);
+      
+      const char *ack_array[20] = {
+        "REPLCONF",
+        "ACK",
+        bytes_read_str
+      };
 
-  return;
+      // Convert to RESP array and write to write_buffer
+      size_t resp_length = convert_to_resp_array(write_buf, buf_size, 3, ack_array);
+      
+      if (stats->replication.bytes_read->is_reading == 0) {
+        stats->replication.bytes_read->is_reading = 1;
+      }
+      
+      return resp_length;
+    }
+  }
+  
+  return snprintf(write_buf, buf_size, "-ERR Unknown REPLCONF command\r\n");
 }
 
 void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
@@ -245,43 +253,68 @@ void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *sta
   printf("Processing commands from buffer (%d bytes)\n", bytes_read);
   
   while (current_pos < end_pos) {
-    // Check if we have a complete RESP command
-    char *command_end = strstr(current_pos, "\r\n");
-    if (!command_end) {
-      printf("Incomplete command in buffer, waiting for more data\n");
+    // Check if we have enough data to determine command type
+    if (current_pos >= end_pos - 1) {
+      printf("Reached end of buffer\n");
       break;
     }
-    
-    // Parse and process the command
-    char *raw_buffer = current_pos;
-    RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-    
-    if (parsed_buffer != NULL) {
-      // Print command preview for debugging
-      printf("Processing command: ");
-      if (parsed_buffer->type == RESP_ARRAY && parsed_buffer->data.array.count > 0 && 
-          parsed_buffer->data.array.elements[0]->type == RESP_BULK_STRING) {
-        printf("%s", parsed_buffer->data.array.elements[0]->data.str);
-        if (parsed_buffer->data.array.count > 1) {
-          printf(" (with %zu arguments)\n", parsed_buffer->data.array.count - 1);
-        } else {
-          printf(" (no arguments)\n");
-        }
-      } else {
-        printf("Non-standard command format\n");
+
+    // Check command type marker ($ or *)
+    char cmd_type = *current_pos;
+    if (cmd_type != '$' && cmd_type != '*') {
+      break;
+    }
+
+    // Try to find the end of this command
+    char *command_end = NULL;
+    if (cmd_type == '$') {
+      // For bulk string, first find length
+      char *length_end = strstr(current_pos, "\r\n");
+      if (!length_end) {
+        printf("Incomplete bulk string command\n");
+        break;
       }
       
-      // Process the command
-      process_command(connection_fd, parsed_buffer, current_pos, ht, stats);
-      free_resp_data(parsed_buffer);
-      free(parsed_buffer);
+      long length = strtol(current_pos + 1, NULL, 10);
+      if (length < 0) {
+        // Skip null bulk string
+        current_pos = length_end + 2;
+        continue;
+      }
       
-      // Move current_pos past this command to the next one
-      current_pos = raw_buffer;
+      if (length_end + 2 + length + 2 > end_pos) {
+        printf("Incomplete bulk string data\n");
+        break;
+      }
+      
+      command_end = length_end + 2 + length + 2; // Skip length, \r\n, data, and final \r\n
+    } else if (cmd_type == '*') {
+      // For arrays, we need to parse the entire structure
+      char *raw_buffer = current_pos;
+      RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
+      
+      if (parsed_buffer != NULL) {
+        if (stats->replication.role == ROLE_SLAVE && stats->replication.bytes_read->is_reading == 1) {
+          stats->replication.bytes_read->bytes_read += (raw_buffer - current_pos);
+        }
+
+        process_command(connection_fd, parsed_buffer, current_pos, ht, stats);
+        free_resp_data(parsed_buffer);
+        free(parsed_buffer);
+        
+        command_end = raw_buffer;
+      } else {
+        // Failed to parse array, try to find next command
+        printf("Failed to parse array command\n");
+        break;
+      }
+    }
+
+    // Move to the next command
+    if (command_end) {
+      current_pos = command_end;
     } else {
-      printf("Failed to parse command\n");
-      // Move past this invalid command to avoid getting stuck
-      current_pos = command_end + 2;
+      break;
     }
   }
 }
@@ -310,54 +343,67 @@ void process_command(int connection_fd, RESPData *parsed_request,
     return;
   }
 
-  if (stats->replication.role == ROLE_SLAVE)
-    printf("Recieved Command :%s", cmd.name);
-
+  // Use a single pre-allocated buffer for all handlers
+  char write_buf[4096];  // Increased size to handle larger responses
+  size_t response_len = 0;
+  // Call the appropriate command handler and get the response in the buffer
   switch (cmd_type) {
   case CMD_PING:
-    handle_ping(connection_fd);
+    response_len = handle_ping(write_buf, sizeof(write_buf));
     break;
   case CMD_ECHO:
-    handle_echo(connection_fd, parsed_request);
+    response_len = handle_echo(write_buf, sizeof(write_buf), parsed_request);
     break;
   case CMD_SET:
-    // Check if the command should be sent to the slave
-    handle_set(connection_fd, parsed_request, ht);
+    response_len = handle_set(write_buf, sizeof(write_buf), parsed_request, ht);
     break;
   case CMD_GET:
-    handle_get(connection_fd, parsed_request, ht);
+    response_len = handle_get(write_buf, sizeof(write_buf), parsed_request, ht);
     break;
   case CMD_DEL:
-    handle_del(connection_fd, parsed_request, ht);
+    response_len = handle_del(write_buf, sizeof(write_buf), parsed_request, ht);
     break;
   case CMD_CONFIG:
-    handle_config(connection_fd, parsed_request, stats);
+    response_len = handle_config(write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   case CMD_KEYS:
-    handle_keys(connection_fd, parsed_request, ht);
+    response_len = handle_keys(write_buf, sizeof(write_buf), parsed_request, ht);
     break;
   case CMD_INFO:
-    handle_info(connection_fd, parsed_request, stats);
+    response_len = handle_info(write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   case CMD_REPLCONF:
-    handle_replconf(connection_fd, parsed_request);
+    response_len = handle_replconf(write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   case CMD_PSYNC:
     handle_psync(connection_fd, parsed_request, stats);
     break;
   default:
-    say(connection_fd, "-ERR unknown command\r\n");
+    snprintf(write_buf, sizeof(write_buf), "-ERR unknown command\r\n");
+    response_len = strlen(write_buf);
   }
 
+  if (response_len > 0) {
+    if (stats->replication.role == ROLE_SLAVE) {
+      // If the command is not a replication command, send the response to the master
+      if (connection_fd != stats->replication.master_fd) {
+        say(connection_fd, write_buf);
+      } else if (connection_fd == stats->replication.master_fd && cmd.should_respond_to_master) {
+        say(connection_fd, write_buf);
+      }
+    } else {
+      // If the command is not a replication command, send the response to the client
+      say(connection_fd, write_buf);
+    }
+
+  }
+
+  // Propagate commands to slaves if needed
   if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
-    int slave_connection_fd;
-    Node *current_node;
-
-    current_node = stats->others.connected_slaves->head;
-    int node_index = 0;
-
+    Node *current_node = stats->others.connected_slaves->head;
+    
     while (current_node != NULL) {
-      slave_connection_fd = *(int *)(current_node->data);
+      int slave_connection_fd = *(int *)(current_node->data);
       say(slave_connection_fd, raw_buffer);
       current_node = current_node->next;
     }

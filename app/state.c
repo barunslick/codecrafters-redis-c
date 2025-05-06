@@ -41,6 +41,9 @@ RedisStats *init_redis_stats() {
   stats->replication.master_host = 0;                  // Default value
   stats->replication.master_port = DEFAULT_REDIS_PORT; // Default value
   stats->replication.handshake_state = HANDSHAKE_NOT_STARTED; // Initialize handshake state
+  stats->replication.bytes_read = malloc(sizeof(BytesRead));
+  stats->replication.bytes_read->is_reading = 0;
+  stats->replication.bytes_read->bytes_read = 0;
 
   // Initialize others section
   snprintf(stats->others.rdb_dir, sizeof(stats->others.rdb_dir),

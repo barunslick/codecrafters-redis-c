@@ -17,6 +17,12 @@ typedef enum {
   HANDSHAKE_COMPLETED = 5
 } HandshakeState;
 
+
+typedef struct {
+    int is_reading;
+    size_t bytes_read;
+} BytesRead;
+
 typedef struct {
   // Server section
   struct {
@@ -42,6 +48,7 @@ typedef struct {
     uint64_t master_repl_offset;
     int master_fd;
     HandshakeState handshake_state; // Track handshake progress
+    BytesRead* bytes_read; // Track bytes read during replication
   } replication;
 
   // Some custom stats

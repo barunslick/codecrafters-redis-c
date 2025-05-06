@@ -55,18 +55,27 @@ RESPData* parse_bulk_string(char **buf) {
 }
 
 RESPData* parse_resp_buffer(char **buf) {
-    switch (*buf[0]) {
-        // case '+':
-        //     return parse_simple_string(buf);
-        // case '-':
-        //     return parse_exit_with_error(buf);
-        // case ':':
-        //     return parse_integer(buf);
+    if (!buf || !(*buf) || **buf == '\0') {
+        return NULL;
+    }
+
+    switch (**buf) {
+        case '+':
+            return NULL;
+        case '-':
+            return NULL;
+        case ':':
+            return NULL;
         case '$':
+            // Bulk string
             return parse_bulk_string(buf);
         case '*':
+            // Array
             return parse_array(buf);
         default:
+            // Skip any invalid characters and try to find the next valid command
+            // This helps with robustness when processing multi-command buffers
+            (*buf)++;
             return NULL;
     }
 }
@@ -114,36 +123,77 @@ RESPData* parse_array(char **buf) {
     return data;
 }
 
-char* convert_to_resp_array(int count, const char *strings[]) {
-    // Allocate a buffer with enough space for the expected output
-    // TODO: Make this resizable
-    size_t buffer_size = 1024;
-    char *result = malloc(buffer_size);
-    if (!result) {
-        fprintf(stderr, "Memory allocation failed\n");
-        exit(1);
+size_t convert_to_resp_array(char *buffer, size_t buffer_size, int count, const char *strings[]) {
+    if (buffer == NULL) {
+        // Calculate required size without writing
+        size_t required_size = snprintf(NULL, 0, "*%d\r\n", count);
+        
+        for (int i = 0; i < count; i++) {
+            const char *str = strings[i];
+            
+            if (str == NULL) {
+                required_size += strlen("$-1\r\n");
+            } else {
+                int length = strlen(str);
+                required_size += snprintf(NULL, 0, "$%d\r\n%s\r\n", length, str);
+            }
+        }
+        
+        return required_size;
     }
-    result[0] = '\0'; // Start with an empty string
-
+    
+    size_t written = 0;
+    int result;
+    
     // Add the *<count> prefix to indicate the number of elements
-    snprintf(result, buffer_size, "*%d\r\n", count);
-
+    result = snprintf(buffer, buffer_size, "*%d\r\n", count);
+    if (result < 0 || (size_t)result >= buffer_size) {
+        return 0;
+    }
+    written += result;
+    
     for (int i = 0; i < count; i++) {
         const char *str = strings[i];
-        char buffer[256];
-
+        
         if (str == NULL) {
-            snprintf(buffer, sizeof(buffer), "$-1\r\n");
+            const char *null_str = "$-1\r\n";
+            size_t null_len = strlen(null_str);
+            
+            if (written + null_len >= buffer_size) {
+                return 0; // Buffer too small
+            }
+            
+            memcpy(buffer + written, null_str, null_len);
+            written += null_len;
         } else {
             int length = strlen(str);
-            snprintf(buffer, sizeof(buffer), "$%d\r\n%s\r\n", length, str);
+            result = snprintf(buffer + written, buffer_size - written, "$%d\r\n", length);
+            
+            if (result < 0 || written + result >= buffer_size) {
+                return 0;
+            }
+            written += result;
+            
+            if (written + length >= buffer_size) {
+                return 0; 
+            }
+            memcpy(buffer + written, str, length);
+            written += length;
+            
+            if (written + 2 >= buffer_size) {
+                return 0;
+            }
+            memcpy(buffer + written, "\r\n", 2);
+            written += 2;
         }
-        strcat(result, buffer);
     }
-
-    return result;
+    
+    if (written < buffer_size) {
+        buffer[written] = '\0';
+    }
+    
+    return written;
 }
-
 
 char* convert_to_resp_string(const char *str) {
     // $<length>\r\n<data>\r\n
@@ -152,7 +202,7 @@ char* convert_to_resp_string(const char *str) {
     }
 
     int length = strlen(str);
-    char *result = malloc(length + 20); // Allocate enough space for the response
+    char *result = malloc(length + 20); // 20 is arbitrary, just to be safe
     if (!result) {
         fprintf(stderr, "Memory allocation failed\n");
         exit(1);

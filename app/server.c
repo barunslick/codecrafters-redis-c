@@ -298,6 +298,7 @@ void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
   memset(buf, 0, sizeof(buf));
   
   int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
+  int remaining_buffer_size = bytes_read;
   if (bytes_read <= 0) {
     if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
       perror("Error reading from master");
@@ -305,21 +306,33 @@ void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
     return;
   }
   
+  int handshake_offset = 0;
   if (stats->replication.handshake_state != HANDSHAKE_COMPLETED && 
       !stats->others.is_replication_completed) {
-    handle_handshake_response(stats, buf);
-    return;
-  }
-  
-  if (!stats->others.is_replication_completed) {
-    int is_command = process_rdb_data(stats, buf, bytes_read);
-    if (is_command) {
-      process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
+    // handshake_offset = initiative_handshake(stats, buf, bytes_read);
+    handshake_offset = handle_handshake_response(stats, buf, bytes_read);
+    printf("Handshake offset: %d\n", handshake_offset);
+    if (handshake_offset < 0) {
+      return;
     }
-    return;
+  }
+
+  char* remaining_buffer = buf + handshake_offset;
+  printf("Remaining RDB buffer: %s\n", remaining_buffer);
+  remaining_buffer_size = bytes_read - handshake_offset;
+  int rdb_offset = 0;
+  if (!stats->others.is_replication_completed) {
+    rdb_offset = process_rdb_data(stats, remaining_buffer, remaining_buffer_size);
+    if (rdb_offset < 0) {
+      // offset >= 0 means there are commands to process after the RDB data
+      // Process commands starting from the specified offset
+      return;
+    }
   }
   
-  process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
+  char *command_buf = remaining_buffer + rdb_offset;
+  remaining_buffer_size = remaining_buffer_size - rdb_offset;
+  process_commands_in_buffer(connection_fd, ht, stats, command_buf, bytes_read);
 }
 
 void handle_client_request(int connection_fd, ht_table *ht, RedisStats *stats) {
@@ -331,14 +344,5 @@ void handle_client_request(int connection_fd, ht_table *ht, RedisStats *stats) {
     return;
   }
 
-  char *raw_buffer = buf;
-  RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-
-  if (parsed_buffer != NULL) {
-    process_command(connection_fd, parsed_buffer, buf, ht, stats);
-    free_resp_data(parsed_buffer);
-    free(parsed_buffer);
-  } else {
-    printf("Failed to parse buffer from client\n");
-  }
+  process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
 }
