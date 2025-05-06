@@ -60,7 +60,6 @@ void read_rdb_file_from_master(int master_fd) {
   // Extract size from $<size>\r\n format
   size_t rdb_size = 0;
   sscanf(buffer + 1, "%zu", &rdb_size);
-  printf("RDB size from master: %zu bytes\n", rdb_size);
 
   // Read and discard the RDB data in chunks using read_in
   size_t remaining = rdb_size;

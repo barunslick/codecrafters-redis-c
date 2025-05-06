@@ -198,6 +198,8 @@ void handle_replconf(int connection_fd, RESPData *request) {
   } else if (strcmp(request->data.array.elements[1]->data.str, "capa") == 0) {
     // TODO: Handle capa later
     say(connection_fd, "+OK\r\n");
+  } else if (strcmp(request->data.array.elements[1]->data.str, "GETACK") == 0) {
+    say(connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$1\r\n0\r\n");
   } else {
     say(connection_fd, "-ERR Unknown REPLCONF command\r\n");
   }

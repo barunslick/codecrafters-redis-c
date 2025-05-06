@@ -16,6 +16,8 @@ typedef struct {
 
 // Command functions
 void process_command(int connection_fd, RESPData* parsed_request, char* raw_buffer, ht_table* ht, RedisStats* stats);
+void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
+                              char *buf, int bytes_read);
 void handle_ping(int connection_fd);
 void handle_echo(int connection_fd, RESPData* request);
 void handle_set(int connection_fd, RESPData* request, ht_table* ht);
@@ -26,9 +28,5 @@ void handle_keys(int connection_fd, RESPData* request, ht_table* ht);
 void handle_info(int connection_fd, RESPData* request, RedisStats* stats);
 void handle_replconf(int connection_fd, RESPData* request);
 void handle_psync(int connection_fd, RESPData* request, RedisStats* stats);
-
-// Helper function for processing multiple commands in a buffer
-void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
-                              char *buf, int bytes_read);
 
 #endif // COMMANDS_H

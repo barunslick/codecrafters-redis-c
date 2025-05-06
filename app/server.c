@@ -211,13 +211,14 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
         // to hold the entire message and all the message can be read in one go.
         // In a real-world scenario, you would want to handle partial reads and
         // buffer the data accordingly.
-        int bytes_Read = read_in(connection_fd, buf, sizeof(buf));
-        if (bytes_Read < 0)
+        int bytes_read = read_in(connection_fd, buf, sizeof(buf));
+        if (bytes_read < 0)
           continue;
 
         char *raw_buffer = buf;
         RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-        process_command(connection_fd, parsed_buffer, buf, ht, stats);
+        // process_command(connection_fd, parsed_buffer, buf, ht, stats);
+        process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
         free_resp_data(parsed_buffer);
         free(parsed_buffer);
       } else {
@@ -304,8 +305,6 @@ void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
     return;
   }
   
-  printf("Read %d bytes from master: %.20s...\n", bytes_read, buf);
-
   if (stats->replication.handshake_state != HANDSHAKE_COMPLETED && 
       !stats->others.is_replication_completed) {
     handle_handshake_response(stats, buf);
