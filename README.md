@@ -45,8 +45,8 @@ The challenge is structured in stages — from handling basic commands to implem
 - [x] Receive handshake (1/2)  
 - [x] Receive handshake (2/2)  
 - [x] Empty RDB Transfer  
-- [ ] Single-replica propagation  
-- [ ] Multi Replica Command Propagation  
+- [x] Single-replica propagation  
+- [x] Multi Replica Command Propagation  
 - [ ] Command Processing  
 - [ ] ACKs with no commands  
 - [ ] ACKs with commands  
