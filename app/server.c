@@ -30,12 +30,7 @@ void run_replica_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
                            ht_table *ht);
 int setup_server_socket(RedisStats *stats);
 
-// Function declarations for replica helper functions
 void handle_new_client_connection(int server_fd, int epoll_fd);
-void handle_handshake_response(RedisStats *stats, char *buf);
-int process_rdb_data(RedisStats *stats, char *buf, int bytes_read);
-void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
-                              char *buf, int bytes_read);
 void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats);
 void handle_client_request(int connection_fd, ht_table *ht, RedisStats *stats);
 
@@ -207,17 +202,7 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
     for (int i = 0; i < readable; i++) {
       // For main server connection
       if (events[i].data.fd == server_fd) {
-        connection_fd = accept(server_fd, (struct sockaddr *)&client_addr,
-                               &client_addr_len);
-        if (connection_fd < 0) {
-          exit_with_error("Failed to accept connection");
-        }
-        set_non_blocking(connection_fd, 1);
-        // int* value = malloc(sizeof(int));
-        // *value = connection_fd;
-        // add_to_list_head(stats->others.connected_clients, value);
-        epoll_ctl_add(epoll_fd, connection_fd,
-                      EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLHUP);
+        handle_new_client_connection(server_fd, epoll_fd);
       } else if (events[i].events & EPOLLIN) {
         connection_fd = events[i].data.fd;
         memset(buf, 0, sizeof(buf));
@@ -307,113 +292,12 @@ void handle_new_client_connection(int server_fd, int epoll_fd) {
   printf("Accepted new client connection\n");
 }
 
-void handle_handshake_response(RedisStats *stats, char *buf) {
-  if (stats->replication.handshake_state == HANDSHAKE_PING_SENT && 
-      strncmp(buf, "+PONG\r\n", 7) == 0) {
-    printf("Received PONG from master, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send REPLCONF listening-port
-  }
-  else if (stats->replication.handshake_state == HANDSHAKE_PORT_SENT && 
-           strncmp(buf, "+OK\r\n", 5) == 0) {
-    printf("Received OK for listening-port, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send REPLCONF capa
-  }
-  else if (stats->replication.handshake_state == HANDSHAKE_CAPA_SENT && 
-           strncmp(buf, "+OK\r\n", 5) == 0) {
-    printf("Received OK for capa, proceeding with handshake\n");
-    handle_handshake_step(stats); // Send PSYNC
-  }
-  else if (stats->replication.handshake_state == HANDSHAKE_PSYNC_SENT && 
-           strncmp(buf, "+FULLRESYNC", 11) == 0) {
-    printf("Received FULLRESYNC from master, handshake completed\n");
-    stats->replication.handshake_state = HANDSHAKE_COMPLETED;
-  }
-}
-
-int process_rdb_data(RedisStats *stats, char *buf, int bytes_read) {
-  printf("Processing RDB data: First 16 bytes: ");
-  for (int j = 0; j < (bytes_read > 16 ? 16 : bytes_read); j++) {
-    printf("%02x ", (unsigned char)buf[j]);
-  }
-  printf("\n");
-  
-  // Check if this looks like a RESP command rather than RDB data
-  if (buf[0] == '*') {
-    printf("Received first command from master, marking replication as completed\n");
-    stats->others.is_replication_completed = 1;
-    return 1; // This is a command, not RDB data
-  } 
-  else if (stats->replication.handshake_state == HANDSHAKE_COMPLETED && 
-          strncmp(buf, "$", 1) == 0) {
-    printf("Received RDB file header, processing as RDB transfer\n");
-    stats->others.is_replication_completed = 1;
-  } 
-  else {
-    // In a real implementation, we would parse the RDB format
-    // For now, we'll just consider any data as completion of RDB transfer
-    stats->others.is_replication_completed = 1;
-    printf("RDB file transfer marked as completed\n");
-  }
-  
-  return 0; // This was RDB data, not a command
-}
-
-void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
-                              char *buf, int bytes_read) {
-  char *current_pos = buf;
-  char *end_pos = buf + bytes_read;
-  
-  printf("Processing commands from buffer (%d bytes)\n", bytes_read);
-  
-  while (current_pos < end_pos) {
-    // Check if we have a complete RESP command
-    char *command_end = strstr(current_pos, "\r\n");
-    if (!command_end) {
-      printf("Incomplete command in buffer, waiting for more data\n");
-      break;
-    }
-    
-    // Parse and process the command
-    char *raw_buffer = current_pos;
-    RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-    
-    if (parsed_buffer != NULL) {
-      // Print command preview for debugging
-      printf("Processing command: ");
-      if (parsed_buffer->type == RESP_ARRAY && parsed_buffer->data.array.count > 0 && 
-          parsed_buffer->data.array.elements[0]->type == RESP_BULK_STRING) {
-        printf("%s", parsed_buffer->data.array.elements[0]->data.str);
-        if (parsed_buffer->data.array.count > 1) {
-          printf(" (with %zu arguments)\n", parsed_buffer->data.array.count - 1);
-        } else {
-          printf(" (no arguments)\n");
-        }
-      } else {
-        printf("Non-standard command format\n");
-      }
-      
-      // Process the command
-      process_command(connection_fd, parsed_buffer, current_pos, ht, stats);
-      free_resp_data(parsed_buffer);
-      free(parsed_buffer);
-      
-      // Move current_pos past this command to the next one
-      current_pos = raw_buffer;
-    } else {
-      printf("Failed to parse command\n");
-      // Move past this invalid command to avoid getting stuck
-      current_pos = command_end + 2;
-    }
-  }
-}
-
 void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
   char buf[MAX_BUFFER_SIZE];
   memset(buf, 0, sizeof(buf));
   
   int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
   if (bytes_read <= 0) {
-    // No data or error
     if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
       perror("Error reading from master");
     }
@@ -422,24 +306,20 @@ void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
   
   printf("Read %d bytes from master: %.20s...\n", bytes_read, buf);
 
-  // Handle the handshake steps
   if (stats->replication.handshake_state != HANDSHAKE_COMPLETED && 
       !stats->others.is_replication_completed) {
     handle_handshake_response(stats, buf);
     return;
   }
   
-  // Check if this is RDB data or regular command
   if (!stats->others.is_replication_completed) {
     int is_command = process_rdb_data(stats, buf, bytes_read);
     if (is_command) {
-      // This is actually a command, process it
       process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
     }
     return;
   }
   
-  // Regular command from master after replication is complete
   process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
 }
 

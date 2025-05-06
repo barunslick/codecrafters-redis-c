@@ -27,4 +27,8 @@ void handle_info(int connection_fd, RESPData* request, RedisStats* stats);
 void handle_replconf(int connection_fd, RESPData* request);
 void handle_psync(int connection_fd, RESPData* request, RedisStats* stats);
 
+// Helper function for processing multiple commands in a buffer
+void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
+                              char *buf, int bytes_read);
+
 #endif // COMMANDS_H

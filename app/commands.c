@@ -234,6 +234,56 @@ void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
   return;
 }
 
+// Helper function to process multiple commands in a buffer
+void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
+                              char *buf, int bytes_read) {
+  char *current_pos = buf;
+  char *end_pos = buf + bytes_read;
+  
+  printf("Processing commands from buffer (%d bytes)\n", bytes_read);
+  
+  while (current_pos < end_pos) {
+    // Check if we have a complete RESP command
+    char *command_end = strstr(current_pos, "\r\n");
+    if (!command_end) {
+      printf("Incomplete command in buffer, waiting for more data\n");
+      break;
+    }
+    
+    // Parse and process the command
+    char *raw_buffer = current_pos;
+    RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
+    
+    if (parsed_buffer != NULL) {
+      // Print command preview for debugging
+      printf("Processing command: ");
+      if (parsed_buffer->type == RESP_ARRAY && parsed_buffer->data.array.count > 0 && 
+          parsed_buffer->data.array.elements[0]->type == RESP_BULK_STRING) {
+        printf("%s", parsed_buffer->data.array.elements[0]->data.str);
+        if (parsed_buffer->data.array.count > 1) {
+          printf(" (with %zu arguments)\n", parsed_buffer->data.array.count - 1);
+        } else {
+          printf(" (no arguments)\n");
+        }
+      } else {
+        printf("Non-standard command format\n");
+      }
+      
+      // Process the command
+      process_command(connection_fd, parsed_buffer, current_pos, ht, stats);
+      free_resp_data(parsed_buffer);
+      free(parsed_buffer);
+      
+      // Move current_pos past this command to the next one
+      current_pos = raw_buffer;
+    } else {
+      printf("Failed to parse command\n");
+      // Move past this invalid command to avoid getting stuck
+      current_pos = command_end + 2;
+    }
+  }
+}
+
 // ----------------- Main command processor ----------------------------
 // ---------------------------------------------------------------------
 void process_command(int connection_fd, RESPData *parsed_request,

@@ -205,3 +205,54 @@ void handle_handshake_step(RedisStats *stats) {
       break;
   }
 }
+
+void handle_handshake_response(RedisStats *stats, char *buf) {
+  if (stats->replication.handshake_state == HANDSHAKE_PING_SENT && 
+      strncmp(buf, "+PONG\r\n", 7) == 0) {
+    printf("Received PONG from master, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send REPLCONF listening-port
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_PORT_SENT && 
+           strncmp(buf, "+OK\r\n", 5) == 0) {
+    printf("Received OK for listening-port, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send REPLCONF capa
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_CAPA_SENT && 
+           strncmp(buf, "+OK\r\n", 5) == 0) {
+    printf("Received OK for capa, proceeding with handshake\n");
+    handle_handshake_step(stats); // Send PSYNC
+  }
+  else if (stats->replication.handshake_state == HANDSHAKE_PSYNC_SENT && 
+           strncmp(buf, "+FULLRESYNC", 11) == 0) {
+    printf("Received FULLRESYNC from master, handshake completed\n");
+    stats->replication.handshake_state = HANDSHAKE_COMPLETED;
+  }
+}
+
+int process_rdb_data(RedisStats *stats, char *buf, int bytes_read) {
+  printf("Processing RDB data: First 16 bytes: ");
+  for (int j = 0; j < (bytes_read > 16 ? 16 : bytes_read); j++) {
+    printf("%02x ", (unsigned char)buf[j]);
+  }
+  printf("\n");
+  
+  // Check if this looks like a RESP command rather than RDB data
+  if (buf[0] == '*') {
+    printf("Received first command from master, marking replication as completed\n");
+    stats->others.is_replication_completed = 1;
+    return 1; // This is a command, not RDB data
+  } 
+  else if (stats->replication.handshake_state == HANDSHAKE_COMPLETED && 
+          strncmp(buf, "$", 1) == 0) {
+    printf("Received RDB file header, processing as RDB transfer\n");
+    stats->others.is_replication_completed = 1;
+  } 
+  else {
+    // In a real implementation, we would parse the RDB format
+    // For now, we'll just consider any data as completion of RDB transfer
+    stats->others.is_replication_completed = 1;
+    printf("RDB file transfer marked as completed\n");
+  }
+  
+  return 0; // This was RDB data, not a command
+}
