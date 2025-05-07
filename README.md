@@ -4,6 +4,8 @@
 
 The challenge is structured in stages — from handling basic commands to implementing persistence, replication, and streams. Below is a checklist to track my progress through the stages.
 
+Note: I am using this challenge as a chance to catch up with C, so code will be rough around the edges.
+
 ---
 
 #### ✅ Base Stages
@@ -47,9 +49,9 @@ The challenge is structured in stages — from handling basic commands to implem
 - [x] Empty RDB Transfer
 - [x] Single-replica propagation
 - [x] Multi Replica Command Propagation
-- [ ] Command Processing
-- [ ] ACKs with no commands
-- [ ] ACKs with commands
+- [x] Command Processing
+- [x] ACKs with no commands
+- [x] ACKs with commands
 - [ ] WAIT with no replicas
 - [ ] WAIT with no commands
 - [ ] WAIT with multiple commands
