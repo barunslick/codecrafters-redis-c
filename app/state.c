@@ -18,6 +18,17 @@ const char *get_role_str(RedisRole role) {
   }
 }
 
+// Create a new ReplicaInfo instance
+ReplicaInfo* create_replica_info(int connection_fd) {
+  ReplicaInfo* info = malloc(sizeof(ReplicaInfo));
+  if (!info) {
+    return NULL;
+  }
+  info->connection_fd = connection_fd;
+  info->last_ack_offset = 0;
+  return info;
+}
+
 // Initializer function
 RedisStats *init_redis_stats() {
   RedisStats *stats = malloc(sizeof(RedisStats));
@@ -59,7 +70,7 @@ RedisStats *init_redis_stats() {
   stats->replication.master_fd = -1; // Default value
 
   stats->others.connected_clients = create_list();
-  stats->others.connected_slaves = create_list(); // Skip this later for slaves
+  stats->others.connected_slaves = create_list(); // For storing ReplicaInfo
   stats->others.is_replication_completed = 0;
 
   return stats;

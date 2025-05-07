@@ -23,6 +23,12 @@ typedef struct {
     size_t bytes_read;
 } BytesRead;
 
+// Struct to store replica connection and offset information
+typedef struct {
+    int connection_fd;
+    size_t last_ack_offset;
+} ReplicaInfo;
+
 typedef struct {
   // Server section
   struct {
@@ -64,5 +70,6 @@ typedef struct {
 
 RedisStats *init_redis_stats();
 const char *get_role_str(RedisRole role);
+ReplicaInfo* create_replica_info(int connection_fd);
 
 #endif /* STATE_H */

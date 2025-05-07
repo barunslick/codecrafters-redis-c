@@ -211,6 +211,20 @@ size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, Redi
       }
       
       return resp_length;
+    } else if (stats->replication.role == ROLE_SLAVE) {  
+      size_t ack_offset = strtoul(request->data.array.elements[2]->data.str, NULL, 10);
+
+      Node *current = stats->others.connected_slaves->head;
+      while (current != NULL) { // Sequential search for now :)
+        ReplicaInfo *replica = (ReplicaInfo *)current->data;
+        if (replica->connection_fd == stats->replication.master_fd) {
+          replica->last_ack_offset = ack_offset;
+          break;
+        }
+        current = current->next;
+      }
+
+      return 0;
     }
   }
   
@@ -230,7 +244,6 @@ ssize_t handle_wait(char* write_buf, size_t buf_size, RESPData *request, RedisSt
 }
 
 void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
-  // Check if it is slave
   if (stats->replication.role == ROLE_SLAVE) {
     say(connection_fd, "-ERR PSYNC not supported in slave mode\r\n");
     return;
@@ -248,10 +261,14 @@ void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
 
   send_rdb_file_to_slave(connection_fd, stats);
 
-  // Set the slave as ready to read. Probably need to remove from here later.
-  int *value = malloc(sizeof(int));
-  *value = connection_fd;
-  if (add_to_list_tail(stats->others.connected_slaves, value) == NULL) {
+  // Create a ReplicaInfo struct to store the connection fd and last acknowledged offset
+  ReplicaInfo* replica = create_replica_info(connection_fd);
+  if (replica == NULL) {
+    exit_with_error("Failed to allocate memory for ReplicaInfo");
+  }
+  
+  if (add_to_list_tail(stats->others.connected_slaves, replica) == NULL) {
+    free(replica);
     exit_with_error("Internal Error");
   }
 
@@ -420,20 +437,23 @@ void process_command(int connection_fd, RESPData *parsed_request,
     Node *current_node = stats->others.connected_slaves->head;
     
     while (current_node != NULL) {
-      int slave_connection_fd = *(int *)(current_node->data);
-      say(slave_connection_fd, raw_buffer);
+      ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
+      say(replica->connection_fd, raw_buffer);
+      
+      // Update the master's replication offset after sending command to replica
+      stats->replication.master_repl_offset += strlen(raw_buffer);
+      
       current_node = current_node->next;
     }
   }
 
-  // If the command is WAIT, we need to sent GETACK to replicas
-  // Handle this better later
+  // If the command is WAIT, we need to send GETACK to replicas
   if (cmd_type == CMD_WAIT && stats->replication.role == ROLE_MASTER) {
     Node *current_node = stats->others.connected_slaves->head;
     
     while (current_node != NULL) {
-      int slave_connection_fd = *(int *)(current_node->data);
-      say(slave_connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
+      ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
+      say(replica->connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
       current_node = current_node->next;
     }
   }
