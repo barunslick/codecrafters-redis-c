@@ -52,8 +52,8 @@ Note: I am using this challenge as a chance to catch up with C, so code will be 
 - [x] Command Processing
 - [x] ACKs with no commands
 - [x] ACKs with commands
-- [ ] WAIT with no replicas
-- [ ] WAIT with no commands
+- [x] WAIT with no replicas
+- [x] WAIT with no commands
 - [ ] WAIT with multiple commands
 
 ---
@@ -90,5 +90,5 @@ TODO: Add sections
 
 
 
-> 🗓️ Last updated: April 30, 2025
+> 🗓️ Last updated: March 7, 2025
 > 💡 [Challenge link](https://codecrafters.io/challenges/redis)

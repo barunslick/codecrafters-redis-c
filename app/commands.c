@@ -218,10 +218,6 @@ size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, Redi
 }
 
 ssize_t handle_wait(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
-  if (request->data.array.count != 3) {
-    return snprintf(write_buf, buf_size, "-ERR wrong number of arguments\r\n");
-  }
-
   int num_slaves = atoi(request->data.array.elements[1]->data.str);
   int timeout = atoi(request->data.array.elements[2]->data.str);
 
@@ -269,8 +265,6 @@ void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *sta
                               char *buf, int bytes_read) {
   char *current_pos = buf;
   char *end_pos = buf + bytes_read;
-  
-  printf("Processing commands from buffer (%d bytes)\n", bytes_read);
   
   while (current_pos < end_pos) {
     // Check if we have enough data to determine command type
@@ -428,6 +422,18 @@ void process_command(int connection_fd, RESPData *parsed_request,
     while (current_node != NULL) {
       int slave_connection_fd = *(int *)(current_node->data);
       say(slave_connection_fd, raw_buffer);
+      current_node = current_node->next;
+    }
+  }
+
+  // If the command is WAIT, we need to sent GETACK to replicas
+  // Handle this better later
+  if (cmd_type == CMD_WAIT && stats->replication.role == ROLE_MASTER) {
+    Node *current_node = stats->others.connected_slaves->head;
+    
+    while (current_node != NULL) {
+      int slave_connection_fd = *(int *)(current_node->data);
+      say(slave_connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
       current_node = current_node->next;
     }
   }
