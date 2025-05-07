@@ -23,6 +23,7 @@ typedef enum {
   CMD_UNKNOWN,
   CMD_REPLCONF,
   CMD_PSYNC,
+  CMD_WAIT,
 } CommandType;
 
 // Command specification with max and min arguments
@@ -47,6 +48,7 @@ static const CommandInfo COMMANDS[] = {
     {CMD_INFO, 2, 2, "INFO", 0, 1},
     {CMD_REPLCONF, 3, 10, "REPLCONF", 0, 1},
     {CMD_PSYNC, 3, 3, "PSYNC", 0, 0},
+    {CMD_WAIT, 3, 3, "WAIT", 0, 0},
 };
 
 // Command validation and parsing
@@ -215,6 +217,22 @@ size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, Redi
   return snprintf(write_buf, buf_size, "-ERR Unknown REPLCONF command\r\n");
 }
 
+ssize_t handle_wait(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
+  if (request->data.array.count != 3) {
+    return snprintf(write_buf, buf_size, "-ERR wrong number of arguments\r\n");
+  }
+
+  int num_slaves = atoi(request->data.array.elements[1]->data.str);
+  int timeout = atoi(request->data.array.elements[2]->data.str);
+
+
+  if (stats->replication.role == ROLE_SLAVE) {
+    return snprintf(write_buf, buf_size, "-ERR WAIT not supported in slave mode\r\n");
+  }
+
+  return snprintf(write_buf, buf_size, ":%d\r\n", stats->others.connected_slaves->len);
+}
+
 void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
   // Check if it is slave
   if (stats->replication.role == ROLE_SLAVE) {
@@ -244,7 +262,9 @@ void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
   return;
 }
 
-// Helper function to process multiple commands in a buffer
+
+// ----------------- Command processing functions ----------------------------
+// ---------------------------------------------------------------------
 void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *stats, 
                               char *buf, int bytes_read) {
   char *current_pos = buf;
@@ -377,6 +397,9 @@ void process_command(int connection_fd, RESPData *parsed_request,
     break;
   case CMD_PSYNC:
     handle_psync(connection_fd, parsed_request, stats);
+    break;
+  case CMD_WAIT:
+    response_len = handle_wait(write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   default:
     snprintf(write_buf, sizeof(write_buf), "-ERR unknown command\r\n");
