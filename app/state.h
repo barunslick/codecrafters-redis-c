@@ -1,6 +1,8 @@
 #ifndef STATE_H
 #define STATE_H
 
+#include <stdbool.h>
+
 #include "dlist.h"
 #include <stdint.h>
 
@@ -26,8 +28,15 @@ typedef struct {
 // Struct to store replica connection and offset information
 typedef struct {
     int connection_fd;
-    size_t last_ack_offset;
+    uint64_t last_ack_offset;
 } ReplicaInfo;
+
+typedef struct {
+  int connection_fd;
+  uint64_t master_offset;
+  uint64_t minimum_replica_count;
+  uint64_t expiry;
+} WaitingClientInfo;
 
 typedef struct {
   // Server section
@@ -35,6 +44,7 @@ typedef struct {
     char redis_version[16];
     char os[64];
     uint16_t tcp_port;
+    uint64_t offset;
   } server;
 
   // Clients section
@@ -51,8 +61,8 @@ typedef struct {
     uint32_t master_host;
     uint16_t master_port;
     char master_replid[64];
-    uint64_t master_repl_offset;
     int master_fd;
+    uint64_t master_repl_offset;
     HandshakeState handshake_state; // Track handshake progress
     BytesRead* bytes_read; // Track bytes read during replication
   } replication;
@@ -63,6 +73,7 @@ typedef struct {
     char rdb_filename[124]; // Maybe exceed
     Llist *connected_clients;
     Llist *connected_slaves;
+    Llist *waiting_clients;
     int is_replication_completed;
   } others;
 
@@ -71,5 +82,6 @@ typedef struct {
 RedisStats *init_redis_stats();
 const char *get_role_str(RedisRole role);
 ReplicaInfo* create_replica_info(int connection_fd);
+WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master_offset, uint64_t minimum_replica_count, uint64_t relative_expiry);
 
 #endif /* STATE_H */

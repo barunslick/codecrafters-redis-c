@@ -1,17 +1,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
-#include <time.h>
 
 #include "hashtable.h"
+#include "helper.h"
 
 #define INITIAL_CAPACITY 32
 
-uint64_t get_current_epoch_ms() {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
 
 ht_table* ht_create() {
     // Allocate space for hash table struct.

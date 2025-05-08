@@ -2,7 +2,6 @@
 #define COMMANDS_H
 
 #include "hashtable.h"
-#include "helper.h"
 #include "resp.h"
 #include "state.h"
 

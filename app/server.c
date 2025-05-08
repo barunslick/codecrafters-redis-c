@@ -3,17 +3,14 @@
 #include <getopt.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <ctype.h>
 
 #include "commands.h"
-#include "dlist.h"
 #include "hashtable.h"
 #include "helper.h"
 #include "rdb.h"
@@ -197,6 +194,49 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
   int client_addr_len = sizeof(client_addr);
 
   while (1) {
+    // Handle waiting clients
+    printf("Waiting clients: %llu\n", stats->others.waiting_clients->len);
+    if (stats->others.waiting_clients->len > 0) {
+      // Process the number of slaves that have sent their offset
+      Node* current_replica;
+      uint64_t replica_ok_count = 0;
+      WaitingClientInfo* waiting_client;
+      Node *current_waiting_client = stats->others.waiting_clients->head;
+      Node *next_waiting_client;
+
+      while (current_waiting_client != NULL && stats->others.waiting_clients->len > 0) {
+        replica_ok_count = 0;
+        waiting_client = (WaitingClientInfo *)(current_waiting_client->data);
+        current_replica = stats->others.connected_slaves->head;
+        // Save next node before potential deletion
+        next_waiting_client = current_waiting_client->next;
+
+        while (current_replica != NULL) { // Ugly double nested loop :(
+          printf("Looooping");
+          ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
+
+          if (replica_ok_count >= waiting_client->minimum_replica_count) {
+            break;
+          }
+          current_replica = current_replica->next;
+        }
+
+        
+        printf("Waiting clients count inside loop: %llu\n", stats->others.waiting_clients->len);
+        printf("Expected expiry time: %llu\n", waiting_client->expiry);
+        printf("Curent time: %llu\n", get_current_epoch_ms());
+        printf("Replica met count: %llu\n for client %d\n", replica_ok_count, waiting_client->connection_fd);
+        if (waiting_client->expiry <= get_current_epoch_ms() || replica_ok_count >= waiting_client->minimum_replica_count) {
+          char response[64] = {0};
+          snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
+          say(waiting_client->connection_fd, response);
+          delete_node(stats->others.waiting_clients, current_waiting_client);
+        } 
+        // Use the saved next pointer instead of accessing the potentially deleted node
+        current_waiting_client = next_waiting_client;
+      }
+    }
+
     readable = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
 
     for (int i = 0; i < readable; i++) {
@@ -227,11 +267,14 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
       if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
         // For now, just close the connection
+        printf("Client disconnected: %d\n", events[i].data.fd);
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
         close(events[i].data.fd);
         continue;
       }
     }
+
+    printf("Server time evertime we want: %llu\n", get_current_epoch_ms());
   }
 }
 
@@ -294,10 +337,9 @@ void handle_new_client_connection(int server_fd, int epoll_fd) {
 }
 
 void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
-  char buf[MAX_BUFFER_SIZE];
-  memset(buf, 0, sizeof(buf));
-  
-  int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
+  char buf[MAX_BUFFER_SIZE] = {0};
+
+  const int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
   int remaining_buffer_size = bytes_read;
   if (bytes_read <= 0) {
     if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -329,17 +371,16 @@ void handle_master_data(int connection_fd, ht_table *ht, RedisStats *stats) {
       return;
     }
   }
-  
+
   char *command_buf = remaining_buffer + rdb_offset;
   remaining_buffer_size = remaining_buffer_size - rdb_offset;
-  process_commands_in_buffer(connection_fd, ht, stats, command_buf, bytes_read);
+  process_commands_in_buffer(connection_fd, ht, stats, command_buf, remaining_buffer_size);
 }
 
 void handle_client_request(int connection_fd, ht_table *ht, RedisStats *stats) {
-  char buf[MAX_BUFFER_SIZE];
-  memset(buf, 0, sizeof(buf));
+  char buf[MAX_BUFFER_SIZE] = {0};
 
-  int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
+  const int bytes_read = read_in_non_blocking(connection_fd, buf, sizeof(buf));
   if (bytes_read <= 0) {
     return;
   }

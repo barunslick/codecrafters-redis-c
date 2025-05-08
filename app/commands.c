@@ -6,7 +6,9 @@
 #include <strings.h>
 #include <sys/socket.h>
 
+#include "helper.h"
 #include "commands.h"
+
 #include "dlist.h"
 #include "replication.h"
 
@@ -184,7 +186,7 @@ size_t handle_info(char* write_buf, size_t buf_size, RESPData *request, RedisSta
   }
 }
 
-size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
+size_t handle_replconf(int connection_fd, char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
   if (strcmp(request->data.array.elements[1]->data.str, "listening-port") == 0) {
     // TODO: Handle listening-port later
     return snprintf(write_buf, buf_size, "+OK\r\n");
@@ -205,42 +207,67 @@ size_t handle_replconf(char* write_buf, size_t buf_size, RESPData *request, Redi
 
       // Convert to RESP array and write to write_buffer
       size_t resp_length = convert_to_resp_array(write_buf, buf_size, 3, ack_array);
+      printf("Slave offset when recieving ACK: %lu", stats->replication.bytes_read->bytes_read);
       
       if (stats->replication.bytes_read->is_reading == 0) {
         stats->replication.bytes_read->is_reading = 1;
       }
       
       return resp_length;
-    } else if (stats->replication.role == ROLE_SLAVE) {  
-      size_t ack_offset = strtoul(request->data.array.elements[2]->data.str, NULL, 10);
+    } 
+  } else if (strcmp(request->data.array.elements[1]->data.str, "ACK") == 0) {
+    uint64_t ack_offset = strtoul(request->data.array.elements[2]->data.str, NULL, 10);
 
-      Node *current = stats->others.connected_slaves->head;
-      while (current != NULL) { // Sequential search for now :)
-        ReplicaInfo *replica = (ReplicaInfo *)current->data;
-        if (replica->connection_fd == stats->replication.master_fd) {
-          replica->last_ack_offset = ack_offset;
-          break;
-        }
-        current = current->next;
+    // Update the last acknowledged offset for the replica
+    Node *current_node = stats->others.connected_slaves->head;
+    while (current_node != NULL) {
+      ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
+      if (replica->connection_fd == connection_fd) {
+        replica->last_ack_offset = ack_offset;
+        break;
       }
-
-      return 0;
+      current_node = current_node->next;
     }
-  }
+
+    return 0;
+    }
   
   return snprintf(write_buf, buf_size, "-ERR Unknown REPLCONF command\r\n");
 }
 
-ssize_t handle_wait(char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
-  int num_slaves = atoi(request->data.array.elements[1]->data.str);
-  int timeout = atoi(request->data.array.elements[2]->data.str);
-
-
+ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
   if (stats->replication.role == ROLE_SLAVE) {
     return snprintf(write_buf, buf_size, "-ERR WAIT not supported in slave mode\r\n");
   }
 
-  return snprintf(write_buf, buf_size, ":%d\r\n", stats->others.connected_slaves->len);
+  if (stats->others.connected_slaves->len == 0) {
+    return snprintf(write_buf, buf_size, ":0\r\n");
+  }
+
+  uint64_t num_slaves = atol(request->data.array.elements[1]->data.str);
+  uint64_t timeout = atol(request->data.array.elements[2]->data.str);
+
+  if (stats->replication.role == ROLE_MASTER) {
+    Node *current_node = stats->others.connected_slaves->head;
+    // Send the GET ACK to all the replicas and increase the master offset
+    while (current_node != NULL) {
+      ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
+      say(replica->connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
+      current_node = current_node->next;
+    }
+
+    // Add the client as waiting
+    WaitingClientInfo *waiting_client = create_waiting_client_info(connection_fd, stats->replication.master_repl_offset, num_slaves, timeout);
+    if (waiting_client == NULL) {
+      exit_with_error("Failed to allocate memory for WaitingClientInfo");
+    }
+    if (add_to_list_tail(stats->others.waiting_clients, waiting_client) == NULL) {
+      free(waiting_client);
+      exit_with_error("Failed to add waiting client to list");
+    }
+
+    return 0;
+  }
 }
 
 void handle_psync(int connection_fd, RESPData *request, RedisStats *stats) {
@@ -319,7 +346,7 @@ void process_commands_in_buffer(int connection_fd, ht_table *ht, RedisStats *sta
       }
       
       command_end = length_end + 2 + length + 2; // Skip length, \r\n, data, and final \r\n
-    } else if (cmd_type == '*') {
+    } else {
       // For arrays, we need to parse the entire structure
       char *raw_buffer = current_pos;
       RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
@@ -404,13 +431,13 @@ void process_command(int connection_fd, RESPData *parsed_request,
     response_len = handle_info(write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   case CMD_REPLCONF:
-    response_len = handle_replconf(write_buf, sizeof(write_buf), parsed_request, stats);
+    response_len = handle_replconf(connection_fd, write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   case CMD_PSYNC:
     handle_psync(connection_fd, parsed_request, stats);
     break;
   case CMD_WAIT:
-    response_len = handle_wait(write_buf, sizeof(write_buf), parsed_request, stats);
+    response_len = handle_wait(connection_fd, write_buf, sizeof(write_buf), parsed_request, stats);
     break;
   default:
     snprintf(write_buf, sizeof(write_buf), "-ERR unknown command\r\n");
@@ -419,7 +446,7 @@ void process_command(int connection_fd, RESPData *parsed_request,
 
   if (response_len > 0) {
     if (stats->replication.role == ROLE_SLAVE) {
-      // If the command is not a replication command, send the response to the master
+      // If the command is not a replication command,
       if (connection_fd != stats->replication.master_fd) {
         say(connection_fd, write_buf);
       } else if (connection_fd == stats->replication.master_fd && cmd.should_respond_to_master) {
@@ -429,13 +456,14 @@ void process_command(int connection_fd, RESPData *parsed_request,
       // If the command is not a replication command, send the response to the client
       say(connection_fd, write_buf);
     }
-
   }
 
   // Propagate commands to slaves if needed
   if (cmd.should_send_to_slave && stats->replication.role == ROLE_MASTER) {
+    // Update the server offset
+    stats->server.offset += strlen(raw_buffer);
     Node *current_node = stats->others.connected_slaves->head;
-    
+
     while (current_node != NULL) {
       ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
       say(replica->connection_fd, raw_buffer);
@@ -443,17 +471,6 @@ void process_command(int connection_fd, RESPData *parsed_request,
       // Update the master's replication offset after sending command to replica
       stats->replication.master_repl_offset += strlen(raw_buffer);
       
-      current_node = current_node->next;
-    }
-  }
-
-  // If the command is WAIT, we need to send GETACK to replicas
-  if (cmd_type == CMD_WAIT && stats->replication.role == ROLE_MASTER) {
-    Node *current_node = stats->others.connected_slaves->head;
-    
-    while (current_node != NULL) {
-      ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
-      say(replica->connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
       current_node = current_node->next;
     }
   }

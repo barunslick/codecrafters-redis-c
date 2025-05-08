@@ -10,6 +10,7 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "helper.h"
 
@@ -210,11 +211,11 @@ uint32_t resolve_host(const char *hostname) {
   return inet_addr(hostname); // Convert hostname to IP address
 }
 
-ssize_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size) {
+size_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size) {
   // Currently, this function has no indication of whether the file exceeds the
   // buffer size. Fix it later.
-  ssize_t bytes_read = 0;
-  ssize_t total_bytes_read = 0;
+  size_t bytes_read = 0;
+  size_t total_bytes_read = 0;
 
   if (fd < 0 || buffer == NULL || buffer_size == 0) {
     return -1; // Invalid fd, buffer or size
@@ -240,4 +241,10 @@ ssize_t read_file_to_buffer(int fd, char *buffer, size_t buffer_size) {
   }
 
   return total_bytes_read;
+}
+
+uint64_t get_current_epoch_ms() {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }

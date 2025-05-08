@@ -12,7 +12,7 @@
 int connect_to_master(uint32_t host, uint16_t port) {
   printf("Connecting to master at %d:%d\n", host, port);
 
-  int sockfd = create_server_socket();
+  const int fd = create_server_socket();
 
   struct sockaddr_in master_addr = {
       .sin_family = AF_INET,
@@ -20,15 +20,15 @@ int connect_to_master(uint32_t host, uint16_t port) {
       .sin_addr = {htonl(host)},
   };
 
-  if (connect(sockfd, (struct sockaddr *)&master_addr, sizeof(master_addr)) <
+  if (connect(fd, (struct sockaddr *)&master_addr, sizeof(master_addr)) <
       0) {
     error("Connection to master failed");
-    close(sockfd);
+    close(fd);
     return -1;
   }
 
   printf("Connected to master at %d:%d\n", host, port);
-  return sockfd;
+  return fd;
 }
 
 void send_rdb_file_to_slave(int connection_id, RedisStats *stats) {
@@ -255,7 +255,7 @@ int process_rdb_data(RedisStats *stats, char *buf, int bytes_read) {
       printf("RDB transfer completed\n");
       return -1;
     } else {
-      printf("Partial RDB file received (%d of %zu bytes), waiting for more data\n", 
+      printf("Partial RDB file received (%lu of %zu bytes), waiting for more data\n",
              bytes_read - header_len, rdb_size);
       
       size_t expected_bytes = header_len + rdb_size;
