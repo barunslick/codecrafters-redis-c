@@ -280,7 +280,7 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
       if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
         // For now, just close the connection
-        printf("Client disconnected: %d\n", events[i].data.fd);
+        printf("Client disconnected: %d\n at timestamp %llu\n", events[i].data.fd, get_current_epoch_ms());
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
         close(events[i].data.fd);
         printf("Connection kill timestamp: %llu\n", get_current_epoch_ms());
