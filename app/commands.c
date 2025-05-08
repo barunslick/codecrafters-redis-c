@@ -8,7 +8,6 @@
 
 #include "helper.h"
 #include "commands.h"
-
 #include "dlist.h"
 #include "replication.h"
 
@@ -245,11 +244,31 @@ ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPDat
   }
 
   uint64_t num_slaves = atol(request->data.array.elements[1]->data.str);
-  uint64_t timeout = atol(request->data.array.elements[2]->data.str);
+  uint64_t expiry = atol(request->data.array.elements[2]->data.str) + get_current_epoch_ms();
 
   if (stats->replication.role == ROLE_MASTER) {
     Node *current_node = stats->others.connected_slaves->head;
     // Send the GET ACK to all the replicas and increase the master offset
+
+    Node* current_replica;
+    uint64_t replica_ok_count = 0;
+    current_replica = stats->others.connected_slaves->head;
+    while (current_replica != NULL) { 
+      ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
+      if (replica->last_ack_offset >= stats->server.offset) {
+        replica_ok_count++;
+      }
+      if (replica_ok_count >= num_slaves) {
+        char response[64] = {0};
+        snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
+        say(connection_fd, response);
+        return 0;
+      }
+      current_replica = current_replica->next;
+    }
+
+
+
     while (current_node != NULL) {
       ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);
       say(replica->connection_fd, "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n");
@@ -257,7 +276,7 @@ ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPDat
     }
 
     // Add the client as waiting
-    WaitingClientInfo *waiting_client = create_waiting_client_info(connection_fd, stats->replication.master_repl_offset, num_slaves, timeout);
+    WaitingClientInfo *waiting_client = create_waiting_client_info(connection_fd, stats->replication.master_repl_offset, num_slaves, expiry);
     if (waiting_client == NULL) {
       exit_with_error("Failed to allocate memory for WaitingClientInfo");
     }

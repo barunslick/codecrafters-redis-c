@@ -194,8 +194,9 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
   int client_addr_len = sizeof(client_addr);
 
   while (1) {
+    printf("Server run time: %llu\n", get_current_epoch_ms());
     // Handle waiting clients
-    printf("Waiting clients: %llu\n", stats->others.waiting_clients->len);
+    // printf("Waiting clients: %llu\n", stats->others.waiting_clients->len);
     if (stats->others.waiting_clients->len > 0) {
       // Process the number of slaves that have sent their offset
       Node* current_replica;
@@ -207,13 +208,17 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
       while (current_waiting_client != NULL && stats->others.waiting_clients->len > 0) {
         replica_ok_count = 0;
         waiting_client = (WaitingClientInfo *)(current_waiting_client->data);
+        printf("Check started for connection %d in timestamp %llu\n", waiting_client->connection_fd, get_current_epoch_ms());
         current_replica = stats->others.connected_slaves->head;
         // Save next node before potential deletion
         next_waiting_client = current_waiting_client->next;
 
         while (current_replica != NULL) { // Ugly double nested loop :(
-          printf("Looooping");
           ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
+
+          if (replica->last_ack_offset >= stats->server.offset) {
+            replica_ok_count++;
+          }
 
           if (replica_ok_count >= waiting_client->minimum_replica_count) {
             break;
@@ -221,11 +226,10 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
           current_replica = current_replica->next;
         }
 
-        
-        printf("Waiting clients count inside loop: %llu\n", stats->others.waiting_clients->len);
-        printf("Expected expiry time: %llu\n", waiting_client->expiry);
-        printf("Curent time: %llu\n", get_current_epoch_ms());
-        printf("Replica met count: %llu\n for client %d\n", replica_ok_count, waiting_client->connection_fd);
+        // printf("Waiting clients count inside loop: %llu\n", stats->others.waiting_clients->len);
+        // printf("Expected expiry time: %llu\n", waiting_client->expiry);
+        // printf("Curent time: %llu\n", get_current_epoch_ms());
+        // printf("Replica met count: %llu\n for client %d\n", replica_ok_count, waiting_client->connection_fd);
         if (waiting_client->expiry <= get_current_epoch_ms() || replica_ok_count >= waiting_client->minimum_replica_count) {
           char response[64] = {0};
           snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
@@ -234,8 +238,12 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
         } 
         // Use the saved next pointer instead of accessing the potentially deleted node
         current_waiting_client = next_waiting_client;
+
+        printf("Check ended for connection %d in timestamp %llu\n", waiting_client->connection_fd, get_current_epoch_ms());
       }
     }
+
+    printf("Command processing time: %llu\n", get_current_epoch_ms());
 
     readable = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
 
@@ -257,6 +265,11 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
         char *raw_buffer = buf;
         RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
+        // Print the parsed buffer for debugging if server
+        if (stats->replication.role == ROLE_MASTER) {
+          printf("Parsed buffer: %s\n", buf);
+          printf("Bytes read: %d\n", bytes_read);
+        }
         // process_command(connection_fd, parsed_buffer, buf, ht, stats);
         process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
         free_resp_data(parsed_buffer);
@@ -270,11 +283,12 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
         printf("Client disconnected: %d\n", events[i].data.fd);
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
         close(events[i].data.fd);
+        printf("Connection kill timestamp: %llu\n", get_current_epoch_ms());
         continue;
       }
     }
 
-    printf("Server time evertime we want: %llu\n", get_current_epoch_ms());
+    // printf("Server time evertime we want: %llu\n", get_current_epoch_ms());
   }
 }
 

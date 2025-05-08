@@ -82,6 +82,6 @@ typedef struct {
 RedisStats *init_redis_stats();
 const char *get_role_str(RedisRole role);
 ReplicaInfo* create_replica_info(int connection_fd);
-WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master_offset, uint64_t minimum_replica_count, uint64_t relative_expiry);
+WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master_offset, uint64_t minimum_replica_count, uint64_t expiry);
 
 #endif /* STATE_H */

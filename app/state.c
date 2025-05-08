@@ -29,7 +29,7 @@ ReplicaInfo* create_replica_info(int connection_fd) {
   return info;
 }
 
-WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master_offset, uint64_t minimum_replica_count, uint64_t relative_expiry) { 
+WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master_offset, uint64_t minimum_replica_count, uint64_t expiry) { 
   WaitingClientInfo* info = malloc(sizeof(WaitingClientInfo));
   if (!info) {
     return NULL;
@@ -37,7 +37,8 @@ WaitingClientInfo* create_waiting_client_info(int connection_fd, uint64_t master
   info->connection_fd = connection_fd;
   info->master_offset = master_offset;
   info->minimum_replica_count = minimum_replica_count;
-  info->expiry = relative_expiry + get_current_epoch_ms();
+  info->expiry = expiry;
+  printf("Expiry set as : %llu\n",info->expiry);
   return info;
 }
 
