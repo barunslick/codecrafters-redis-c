@@ -54,7 +54,7 @@ Note: I am using this challenge as a chance to catch up with C, so code will be 
 - [x] ACKs with commands
 - [x] WAIT with no replicas
 - [x] WAIT with no commands
-- [ ] WAIT with multiple commands
+- [x] WAIT with multiple commands
 
 ---
 
