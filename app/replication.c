@@ -8,6 +8,7 @@
 
 #include "helper.h"
 #include "state.h"
+#include "dlist.h"
 
 int connect_to_master(uint32_t host, uint16_t port) {
   printf("Connecting to master at %d:%d\n", host, port);
@@ -322,4 +323,27 @@ int handle_handshake_response(RedisStats *stats, char *buf, int bytes_read) {
     }
   }
   return -1;
+}
+
+// Helper function to check how many replicas have acknowledged a specific offset
+uint64_t check_replica_acknowledgments(RedisStats *stats, uint64_t required_offset) {
+  uint64_t replica_ok_count = 0;
+  Node* current_replica = stats->others.connected_slaves->head;
+  
+  while (current_replica != NULL) {
+    ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
+    if (replica->last_ack_offset >= required_offset) {
+      replica_ok_count++;
+    }
+    current_replica = current_replica->next;
+  }
+  
+  return replica_ok_count;
+}
+
+// Helper function to respond to waiting client with replication status
+void respond_to_waiting_client(int connection_fd, uint64_t replica_ok_count) {
+  char response[64] = {0};
+  snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
+  say(connection_fd, response);
 }

@@ -248,26 +248,13 @@ ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPDat
 
   if (stats->replication.role == ROLE_MASTER) {
     Node *current_node = stats->others.connected_slaves->head;
-    // Send the GET ACK to all the replicas and increase the master offset
-
-    Node* current_replica;
-    uint64_t replica_ok_count = 0;
-    current_replica = stats->others.connected_slaves->head;
-    while (current_replica != NULL) { 
-      ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
-      if (replica->last_ack_offset >= stats->server.offset) {
-        replica_ok_count++;
-      }
-      if (replica_ok_count >= num_slaves) {
-        char response[64] = {0};
-        snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
-        say(connection_fd, response);
-        return 0;
-      }
-      current_replica = current_replica->next;
+    // Check if enough replicas have already acknowledged the offset
+    uint64_t replica_ok_count = check_replica_acknowledgments(stats, stats->server.offset);
+    
+    if (replica_ok_count >= num_slaves) {
+      respond_to_waiting_client(connection_fd, replica_ok_count);
+      return 0;
     }
-
-
 
     while (current_node != NULL) {
       ReplicaInfo *replica = (ReplicaInfo *)(current_node->data);

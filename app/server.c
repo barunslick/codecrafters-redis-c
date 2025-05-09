@@ -192,60 +192,34 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
   int connection_fd;
   struct sockaddr_in client_addr;
   int client_addr_len = sizeof(client_addr);
+  int epoll_timeout;
 
   while (1) {
-    printf("Server run time: %llu\n", get_current_epoch_ms());
-    // Handle waiting clients
-    // printf("Waiting clients: %llu\n", stats->others.waiting_clients->len);
+    epoll_timeout = -1;
     if (stats->others.waiting_clients->len > 0) {
+      epoll_timeout = 100;
       // Process the number of slaves that have sent their offset
-      Node* current_replica;
-      uint64_t replica_ok_count = 0;
       WaitingClientInfo* waiting_client;
       Node *current_waiting_client = stats->others.waiting_clients->head;
       Node *next_waiting_client;
 
       while (current_waiting_client != NULL && stats->others.waiting_clients->len > 0) {
-        replica_ok_count = 0;
         waiting_client = (WaitingClientInfo *)(current_waiting_client->data);
-        printf("Check started for connection %d in timestamp %llu\n", waiting_client->connection_fd, get_current_epoch_ms());
-        current_replica = stats->others.connected_slaves->head;
         // Save next node before potential deletion
         next_waiting_client = current_waiting_client->next;
-
-        while (current_replica != NULL) { // Ugly double nested loop :(
-          ReplicaInfo *replica = (ReplicaInfo *)(current_replica->data);
-
-          if (replica->last_ack_offset >= stats->server.offset) {
-            replica_ok_count++;
-          }
-
-          if (replica_ok_count >= waiting_client->minimum_replica_count) {
-            break;
-          }
-          current_replica = current_replica->next;
-        }
-
-        // printf("Waiting clients count inside loop: %llu\n", stats->others.waiting_clients->len);
-        // printf("Expected expiry time: %llu\n", waiting_client->expiry);
-        // printf("Curent time: %llu\n", get_current_epoch_ms());
-        // printf("Replica met count: %llu\n for client %d\n", replica_ok_count, waiting_client->connection_fd);
+        
+        // Check how many replicas have acknowledged the required offset
+        uint64_t replica_ok_count = check_replica_acknowledgments(stats, stats->server.offset);
+        
         if (waiting_client->expiry <= get_current_epoch_ms() || replica_ok_count >= waiting_client->minimum_replica_count) {
-          char response[64] = {0};
-          snprintf(response, sizeof(response), ":%d\r\n", (int)replica_ok_count);
-          say(waiting_client->connection_fd, response);
+          respond_to_waiting_client(waiting_client->connection_fd, replica_ok_count);
           delete_node(stats->others.waiting_clients, current_waiting_client);
         } 
-        // Use the saved next pointer instead of accessing the potentially deleted node
         current_waiting_client = next_waiting_client;
-
-        printf("Check ended for connection %d in timestamp %llu\n", waiting_client->connection_fd, get_current_epoch_ms());
       }
     }
 
-    printf("Command processing time: %llu\n", get_current_epoch_ms());
-
-    readable = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+    readable = epoll_wait(epoll_fd, events, MAX_EVENTS, epoll_timeout);
 
     for (int i = 0; i < readable; i++) {
       // For main server connection
@@ -265,11 +239,6 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
         char *raw_buffer = buf;
         RESPData *parsed_buffer = parse_resp_buffer(&raw_buffer);
-        // Print the parsed buffer for debugging if server
-        if (stats->replication.role == ROLE_MASTER) {
-          printf("Parsed buffer: %s\n", buf);
-          printf("Bytes read: %d\n", bytes_read);
-        }
         // process_command(connection_fd, parsed_buffer, buf, ht, stats);
         process_commands_in_buffer(connection_fd, ht, stats, buf, bytes_read);
         free_resp_data(parsed_buffer);
@@ -280,15 +249,12 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
       if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
         // For now, just close the connection
-        printf("Client disconnected: %d\n at timestamp %llu\n", events[i].data.fd, get_current_epoch_ms());
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
         close(events[i].data.fd);
         printf("Connection kill timestamp: %llu\n", get_current_epoch_ms());
         continue;
       }
     }
-
-    // printf("Server time evertime we want: %llu\n", get_current_epoch_ms());
   }
 }
 
