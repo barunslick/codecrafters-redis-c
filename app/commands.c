@@ -25,6 +25,7 @@ typedef enum {
   CMD_REPLCONF,
   CMD_PSYNC,
   CMD_WAIT,
+  CMD_TYPE
 } CommandType;
 
 // Command specification with max and min arguments
@@ -50,6 +51,7 @@ static const CommandInfo COMMANDS[] = {
     {CMD_REPLCONF, 3, 10, "REPLCONF", 0, 1},
     {CMD_PSYNC, 3, 3, "PSYNC", 0, 0},
     {CMD_WAIT, 3, 3, "WAIT", 0, 0},
+    {CMD_TYPE, 2, 2, "TYPE", 0, 0},
 };
 
 // Command validation and parsing
@@ -234,7 +236,7 @@ size_t handle_replconf(int connection_fd, char* write_buf, size_t buf_size, RESP
   return snprintf(write_buf, buf_size, "-ERR Unknown REPLCONF command\r\n");
 }
 
-ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
+size_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPData *request, RedisStats *stats) {
   if (stats->replication.role == ROLE_SLAVE) {
     return snprintf(write_buf, buf_size, "-ERR WAIT not supported in slave mode\r\n");
   }
@@ -273,6 +275,19 @@ ssize_t handle_wait(int connection_fd, char* write_buf, size_t buf_size, RESPDat
     }
 
     return 0;
+  }
+}
+
+
+size_t handle_type(char* write_buf, size_t buf_size, RESPData *request, ht_table *ht) {
+  const char *key = request->data.array.elements[1]->data.str;
+  const char *value = ht_get(ht, key);
+
+  if (value == NULL) {
+    return snprintf(write_buf, buf_size, "+none\r\n");
+  } else {
+    // Assuming all values are strings for now
+    return snprintf(write_buf, buf_size, "+string\r\n");
   }
 }
 
@@ -444,6 +459,9 @@ void process_command(int connection_fd, RESPData *parsed_request,
     break;
   case CMD_WAIT:
     response_len = handle_wait(connection_fd, write_buf, sizeof(write_buf), parsed_request, stats);
+    break;
+  case CMD_TYPE:
+    response_len = handle_type(write_buf, sizeof(write_buf), parsed_request, ht);
     break;
   default:
     snprintf(write_buf, sizeof(write_buf), "-ERR unknown command\r\n");

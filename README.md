@@ -60,7 +60,7 @@ Note: I am using this challenge as a chance to catch up with C, so code will be 
 
 #### 📚 Streams
 
-- [ ] The TYPE command
+- [x] The TYPE command
 - [ ] Create a stream
 - [ ] Validating entry IDs
 - [ ] Partially auto-generated IDs

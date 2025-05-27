@@ -231,7 +231,7 @@ void run_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
 
         // This currently makes the assumption that the buffer is large enough
         // to hold the entire message and all the message can be read in one go.
-        // In a real-world scenario, you would want to handle partial reads and
+        // You would want to handle partial reads and
         // buffer the data accordingly.
         int bytes_read = read_in(connection_fd, buf, sizeof(buf));
         if (bytes_read < 0)
@@ -265,33 +265,26 @@ void run_replica_main_loop(RedisStats *stats, int epoll_fd, int server_fd,
   struct epoll_event events[MAX_EVENTS];
 
   while (1) {
-    // Wait for events on any of the registered file descriptors
     readable = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
 
     for (int i = 0; i < readable; i++) {
-      // Handle different types of events based on the file descriptor
       if (events[i].data.fd == server_fd) {
-        // New client connection
         handle_new_client_connection(server_fd, epoll_fd);
       } 
       else if (events[i].data.fd == stats->replication.master_fd && 
                (events[i].events & EPOLLIN)) {
-        // Data received from master
         handle_master_data(events[i].data.fd, ht, stats);
       } 
       else if (events[i].events & EPOLLIN) {
-        // Data received from a client
         handle_client_request(events[i].data.fd, ht, stats);
       }
       else {
         printf("Unknown event type: %d\n", events[i].events);
       }
 
-      // Handle disconnections for any file descriptor
       if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
         if (events[i].data.fd == stats->replication.master_fd) {
           printf("Master connection lost\n");
-          // In a real implementation, we would attempt to reconnect
         }
         
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, events[i].data.fd, NULL);
